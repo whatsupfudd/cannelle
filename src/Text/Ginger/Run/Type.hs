@@ -73,10 +73,6 @@ import Prelude ( (.), ($), (==), (/=)
 import qualified Prelude
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.List as List
-import Text.Ginger.AST
-import Text.Ginger.Html
-import Text.Ginger.GVal
-import Text.Ginger.Parse (ParserError (..), sourceLine, sourceColumn, sourceName)
 import Text.Printf
 import Text.PrintfA
 import Data.Scientific (formatScientific)
@@ -106,6 +102,11 @@ import Debug.Trace (trace)
 import Data.Maybe (isNothing)
 import Data.Monoid (Monoid (..), (<>))
 import Data.List (lookup, zipWith, unzip)
+
+import Text.Ginger.JinjaAST
+import Text.Ginger.Html
+import Text.Ginger.GVal
+import Text.Ginger.JinjaParse (ParserError (..), sourceLine, sourceColumn, sourceName)
 
 -- | Execution context. Determines how to look up variables from the
 -- environment, and how to write out template output.

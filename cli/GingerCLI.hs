@@ -6,8 +6,6 @@
 {-#LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import Text.Ginger
-import Text.Ginger.Html
 import Data.Text as Text
 import qualified Data.Aeson as JSON
 import qualified Data.Yaml as YAML
@@ -30,6 +28,9 @@ import Text.Printf (printf)
 import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..))
 import System.Exit
 
+import Text.Ginger
+import Text.Ginger.Html
+
 main :: IO ()
 main = do
     args <- getArgs
@@ -38,7 +39,7 @@ main = do
       RunOptions tpl dat ->
         run tpl dat
 
-loadData :: DataSource -> IO (Maybe (HashMap Text JSON.Value))
+loadData :: DataSource -> IO (Either YAML.ParseException (HashMap Text JSON.Value))
 loadData (DataFromFile fn) = decodeFile fn
 loadData DataFromStdin = decodeStdin
 loadData (DataLiteral str) = decodeString str
@@ -69,26 +70,29 @@ loadTemplate tplSrc = do
 
 run :: TemplateSource -> DataSource -> IO ()
 run tplSrc dataSrc = do
-    scope <- loadData dataSrc
-    let scopeLookup key = toGVal (scope >>= HashMap.lookup key)
-    let contextLookup :: Text -> Run p IO Html (GVal (Run p IO Html))
-        contextLookup key =
-            case key of
-                "print" -> return printF
-                "system" -> return systemF
-                _ -> return $ scopeLookup key
-    let context =
-            makeContextHtmlExM
-                contextLookup
-                (putStr . Text.unpack . htmlSource)
-                (hPutStrLn stderr . show)
+    eiScope <- loadData dataSrc
+    case eiScope of
+      Left err -> putStrLn $ "@[run] loadData err: " <> show err
+      Right scope -> do
+        let scopeLookup key = toGVal (Just scope >>= HashMap.lookup key)
+        let contextLookup :: Text -> Run p IO Html (GVal (Run p IO Html))
+            contextLookup key =
+                case key of
+                    "print" -> return printF
+                    "system" -> return systemF
+                    _ -> return $ scopeLookup key
+        let context =
+                makeContextHtmlExM
+                    contextLookup
+                    (putStr . Text.unpack . htmlSource)
+                    (hPutStrLn stderr . show)
 
-    tpl <- loadTemplate tplSrc
-    runGingerT context tpl >>= either (hPutStrLn stderr . show) showOutput
-    where
-      showOutput value
-        | isNull value = return ()
-        | otherwise = putStrLn . show $ value
+        tpl <- loadTemplate tplSrc
+        runGingerT context tpl >>= either (hPutStrLn stderr . show) showOutput
+        where
+          showOutput value
+            | isNull value = return ()
+            | otherwise = putStrLn . show $ value
 
 
 printParserError :: Maybe String -> ParserError -> IO ()
@@ -116,14 +120,14 @@ loadFileMay fn =
                 print err
                 return Nothing
 
-decodeFile :: (JSON.FromJSON v) => FilePath -> IO (Maybe v)
-decodeFile fn = YAML.decode <$> (openFile fn ReadMode >>= BS.hGetContents)
+decodeFile :: (JSON.FromJSON v) => FilePath -> IO (Either YAML.ParseException v)
+decodeFile fn = YAML.decodeFileEither fn
 
-decodeString :: (JSON.FromJSON v) => String -> IO (Maybe v)
-decodeString = return . YAML.decode . UTF8.fromString
+decodeString :: (JSON.FromJSON v) => String -> IO (Either YAML.ParseException v)
+decodeString = return . YAML.decodeEither' . UTF8.fromString
 
-decodeStdin :: (JSON.FromJSON v) => IO (Maybe v)
-decodeStdin = YAML.decode <$> BS.getContents
+decodeStdin :: (JSON.FromJSON v) => IO (Either YAML.ParseException v)
+decodeStdin = YAML.decodeEither' <$> BS.getContents
 
 printF :: GVal (Run p IO Html)
 printF = fromFunction $ go

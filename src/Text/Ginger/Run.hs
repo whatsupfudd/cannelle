@@ -85,16 +85,9 @@ import Prelude ( (.), ($), (==), (/=)
 import qualified Prelude
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.List as List
-import Text.Ginger.AST
-import Text.Ginger.Html
-import Text.Ginger.GVal
-import Text.Ginger.Run.Type
-import Text.Ginger.Run.Builtins
-import Text.Ginger.Run.FuncUtils
-import Text.Ginger.Run.VM
 import Text.Printf
 import Text.PrintfA
-import Text.Ginger.Parse (parseGinger, ParserError)
+import Text.Ginger.JinjaParse (parseGinger, ParserError)
 import Control.Monad.Trans.Except (runExceptT, catchE)
 
 import Data.Text (Text)
@@ -120,6 +113,15 @@ import Debug.Trace (trace)
 import Data.List (lookup, zipWith, unzip)
 import Data.Monoid (Monoid (..), (<>))
 import Data.Aeson as JSON
+
+import Text.Ginger.JinjaAST
+import Text.Ginger.Html
+import Text.Ginger.GVal
+import Text.Ginger.Run.Type
+import Text.Ginger.Run.Builtins
+import Text.Ginger.Run.FuncUtils
+import Text.Ginger.Run.VM
+
 
 defaultScope :: forall m h p
               . ( Monoid h

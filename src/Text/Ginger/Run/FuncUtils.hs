@@ -31,10 +31,6 @@ import Prelude ( (.), ($), (==), (/=)
 import qualified Prelude
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.List as List
-import Text.Ginger.AST
-import Text.Ginger.Html
-import Text.Ginger.GVal
-import Text.Ginger.Run.Type
 import Text.Printf
 import Text.PrintfA
 import Data.Scientific (formatScientific)
@@ -59,6 +55,12 @@ import Network.HTTP.Types (urlEncode)
 import Debug.Trace (trace)
 import Data.Maybe (isNothing)
 import Data.List (lookup, zipWith, unzip)
+
+import Text.Ginger.JinjaAST
+import Text.Ginger.Html
+import Text.Ginger.GVal
+import Text.Ginger.Run.Type
+
 
 unaryFunc :: forall m h p. (Monad m) => (GVal (Run p m h) -> GVal (Run p m h)) -> Function (Run p m h)
 unaryFunc f [] = do

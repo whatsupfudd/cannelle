@@ -5,7 +5,7 @@
 {-#LANGUAGE FlexibleInstances #-}
 {-#LANGUAGE MultiParamTypeClasses #-}
 -- | Ginger parser.
-module Text.Ginger.Parse
+module Text.Ginger.JinjaParse
 ( parseGinger
 , parseGingerFile
 , parseGinger'
@@ -49,9 +49,6 @@ import Text.Parsec.Error ( errorMessages
                          , errorPos
                          , showErrorMessages
                          )
-import Text.Ginger.AST
-import Text.Ginger.Html ( unsafeRawHtml )
-import Text.Ginger.GVal (GVal, ToGVal (..), dict, (~>))
 
 import Control.Monad (when)
 import Control.Monad.Reader ( ReaderT
@@ -77,6 +74,10 @@ import Data.Char (isSpace)
 
 import System.FilePath ( takeDirectory, (</>) )
 import Text.Printf ( printf )
+
+import Text.Ginger.JinjaAST
+import Text.Ginger.Html ( unsafeRawHtml )
+import Text.Ginger.GVal (GVal, ToGVal (..), dict, (~>))
 
 -- | Input type for the parser (source code).
 type Source = String
@@ -129,7 +130,6 @@ formatParserError tplSrc e =
                 [ offendingLine
                 , (replicate (pred offendingColumn) ' ') <> "^"
                 ]
-
     in unlines . catMaybes $
         [ sourceLocation
         , markerLines

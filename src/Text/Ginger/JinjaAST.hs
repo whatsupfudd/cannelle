@@ -1,6 +1,6 @@
 {-#LANGUAGE DeriveFunctor #-}
 -- | Implements Ginger's Abstract Syntax Tree.
-module Text.Ginger.AST
+module Text.Ginger.JinjaAST
 where
 
 import Data.Text (Text)
@@ -15,23 +15,24 @@ import qualified Data.HashMap.Strict as HashMap
 type VarName = Text
 
 -- | Top-level data structure, representing a fully parsed template.
-data Template a
-    = Template
-        { templateBody :: Statement a
-        , templateBlocks :: HashMap VarName (Block a)
-        , templateParent :: Maybe (Template a)
-        }
-        deriving (Show, Functor)
+data Template a = Template {
+    templateBody :: Statement a
+    , templateBlocks :: HashMap VarName (Block a)
+    , templateParent :: Maybe (Template a)
+  }
+  deriving (Show, Functor)
 
 -- | A macro definition ( @{% macro %}@ )
-data Macro a
-    = Macro { macroArgs :: [VarName], macroBody :: Statement a }
-    deriving (Show, Functor)
+data Macro a = Macro {
+    macroArgs :: [VarName], macroBody :: Statement a
+  }
+  deriving (Show, Functor)
 
 -- | A block definition ( @{% block %}@ )
-data Block a
-    = Block { blockBody :: Statement a } -- TODO: scoped blocks
-    deriving (Show, Functor)
+data Block a = Block {
+    blockBody :: Statement a
+  } -- TODO: scoped blocks
+  deriving (Show, Functor)
 
 -- | Ginger statements.
 data Statement a

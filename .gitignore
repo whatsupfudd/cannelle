@@ -7,5 +7,6 @@
 tags
 .stack-work
 .ghc.environment*
+._*
 /dist-newstyle
 cabal.project.local*

@@ -257,7 +257,7 @@ module Text.Ginger
 -- | If you don't need a monadic context for resolving includes (e.g. because you
 -- have pre-loaded all template sources), you can use the pure 'parseGinger'
 -- flavor, which does not rely on a host monad.
-  module Text.Ginger.Parse
+  module Text.Ginger.JinjaParse
 
 -- ** Running
 -- | The core function for running a template is 'runGinger' (or its monadic
@@ -279,15 +279,15 @@ module Text.Ginger
 -- *** AST
 -- | The data structures used to represent templates, statements and
 -- expressions internally.
-, module Text.Ginger.AST
+, module Text.Ginger.JinjaAST
 
 -- *** Optimizer
 -- | An optimizing AST rewriter
 , module Text.Ginger.Optimizer
 )
 where
-import Text.Ginger.Parse
+import Text.Ginger.JinjaParse
 import Text.Ginger.Optimizer
-import Text.Ginger.AST
+import Text.Ginger.JinjaAST
 import Text.Ginger.Run
 import Text.Ginger.GVal

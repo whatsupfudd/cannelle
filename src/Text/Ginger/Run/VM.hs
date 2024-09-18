@@ -1,15 +1,17 @@
 module Text.Ginger.Run.VM
 where
 
-import Text.Ginger.Run.Type
-import Text.Ginger.Run.FuncUtils
-import Text.Ginger.AST
-import Text.Ginger.GVal
 import Data.Monoid ( (<>) )
 import Control.Monad.State (MonadState (..), get, gets, modify)
 import Control.Monad.Reader (asks, local)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
+
+import Text.Ginger.Run.Type
+import Text.Ginger.Run.FuncUtils
+import Text.Ginger.JinjaAST
+import Text.Ginger.GVal
+
 
 -- | Helper function to run a State action with a temporary state, reverting
 -- to the old state after the action has finished.

@@ -9,9 +9,6 @@ module Text.Ginger.Optimizer
 ( Optimizable (..) )
 where
 
-import Text.Ginger.AST
-import Text.Ginger.GVal
-import Text.Ginger.Run
 import Control.Monad.Identity
 import Data.Default
 import Control.Monad.State (execState, evalState)
@@ -22,6 +19,10 @@ import Control.Applicative
 import Data.Text (Text)
 import qualified Data.Aeson as JSON
 import Data.Semigroup as Semigroup
+
+import Text.Ginger.JinjaAST
+import Text.Ginger.GVal
+import Text.Ginger.Run
 
 class Optimizable a where
     optimize :: a -> a
