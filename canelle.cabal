@@ -26,8 +26,7 @@ library
   exposed-modules:
       Text.Ginger
       Text.Ginger.GoAST
-      Text.Ginger.GoBAST
-      Text.Ginger.GoBParse
+      Text.Ginger.GoParse
       Text.Ginger.GVal
       Text.Ginger.Html
       Text.Ginger.JinjaAST

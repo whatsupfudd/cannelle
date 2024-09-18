@@ -7,6 +7,7 @@
 module Main where
 
 import Data.Text as Text
+import qualified Data.Text.Encoding as T
 import qualified Data.Aeson as JSON
 import qualified Data.Yaml as YAML
 import Data.Maybe
@@ -25,19 +26,23 @@ import Control.Monad
 import Data.Default ( def )
 import System.Process as Process
 import Text.Printf (printf)
-import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..))
 import System.Exit
 
 import Text.Ginger
 import Text.Ginger.Html
+import Text.Ginger.GoParse (parseTemplateSource)
+
+import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..))
 
 main :: IO ()
 main = do
     args <- getArgs
     options <- parseOptions args
     case options of
-      RunOptions tpl dat ->
-        run tpl dat
+      RunOptions tpl dat tech ->
+        case tech of
+          Jinja -> runJinja tpl dat
+          Hugo -> runHugo tpl dat
 
 loadData :: DataSource -> IO (Either YAML.ParseException (HashMap Text JSON.Value))
 loadData (DataFromFile fn) = decodeFile fn
@@ -68,8 +73,8 @@ loadTemplate tplSrc = do
             return t
 
 
-run :: TemplateSource -> DataSource -> IO ()
-run tplSrc dataSrc = do
+runJinja :: TemplateSource -> DataSource -> IO ()
+runJinja tplSrc dataSrc = do
     eiScope <- loadData dataSrc
     case eiScope of
       Left err -> putStrLn $ "@[run] loadData err: " <> show err
@@ -93,6 +98,21 @@ run tplSrc dataSrc = do
           showOutput value
             | isNull value = return ()
             | otherwise = putStrLn . show $ value
+
+runHugo :: TemplateSource -> DataSource -> IO ()
+runHugo tplSrc dataSrc = do
+  rezA <- case tplSrc of
+    TemplateFromFile fn -> do
+      src <- loadFileMay fn
+      case src of
+        Just string -> parseTemplateSource (Just fn) (T.encodeUtf8 . Text.pack $ string)
+        Nothing -> do
+          putStrLn $ "@[runHugo] Could not read file " <> fn
+          exitFailure
+    TemplateFromStdin -> do
+      text <- T.encodeUtf8 . Text.pack <$> getContents
+      parseTemplateSource Nothing text
+  putStrLn $ "Result: " <> show rezA
 
 
 printParserError :: Maybe String -> ParserError -> IO ()

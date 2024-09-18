@@ -5,48 +5,59 @@ import Data.Semigroup ( (<>) ) -- needed for GHC 8.0 and 8.2
 import Options.Applicative
 
 
-data TemplateSource
-  = TemplateFromFile FilePath
+data TemplateSource =
+    TemplateFromFile FilePath
   | TemplateFromStdin
 
-data DataSource
-  = DataFromFile FilePath
+
+data DataSource = 
+    DataFromFile FilePath
   | DataLiteral String
   | DataFromStdin
 
-data Options
-  = RunOptions TemplateSource DataSource
+data Options = RunOptions TemplateSource DataSource TechMode
+
+
+data TechMode =
+  Jinja
+  | Hugo
+
 
 parseOptions :: [String] -> IO Options
 parseOptions args =
-  execParser $ info (options <**> helper)
-    ( fullDesc
+  execParser $ info (options <**> helper) (
+       fullDesc
     <> header "ginger - A command-line interface for the Ginger template language"
-    )
+  )
+
 
 options :: Parser Options
 options = runOptions
 
+
 runOptions :: Parser Options
 runOptions =
-  RunOptions <$> templateSource <*> dataSource
+  RunOptions <$> templateSource <*> dataSource <*> techMode
+
 
 templateSource :: Parser TemplateSource
 templateSource =
-  convert <$> option str
-      ( long "template"
-      <> short 't'
-      <> metavar "TEMPLATE"
-      <> help "Load ginger template from this file"
-      <> value "-"
-      )
+  convert <$> option str (
+       long "template"
+    <> short 't'
+    <> metavar "TEMPLATE"
+    <> help "Load ginger template from this file"
+    <> value "-"
+  )
   where
     convert "-" = TemplateFromStdin
     convert f = TemplateFromFile f
 
+
 dataSource :: Parser DataSource
 dataSource =
   dataFromFile <|> dataLiteral
+
 
 dataFromFile :: Parser DataSource
 dataFromFile =
@@ -68,3 +79,17 @@ dataLiteral =
         <> help "Use specified (JSON or YAML) DATA"
         <> value "{}"
         )
+
+
+techMode :: Parser TechMode
+techMode =
+  flag' Jinja (
+      long "jinja"
+    <> short 'j'
+    <> help "Use the Jinja template engine"
+  )
+  <|> flag' Hugo (
+       long "hugo"
+    <> short 'g'
+    <> help "Use the Hugo template engine"
+  )

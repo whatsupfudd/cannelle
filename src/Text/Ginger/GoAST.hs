@@ -1,114 +1,90 @@
-{-#LANGUAGE DeriveFunctor #-}
 -- | Implements Ginger's Abstract Syntax Tree.
 module Text.Ginger.GoAST
 where
 
 import qualified Data.ByteString as BS
 import Data.Text (Text)
-import Text.Ginger.Html
 import Data.Scientific (Scientific)
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import Control.Monad.State (State)
 
 
--- | A context variable name.
-type VarName = Text
-
--- | Top-level data structure, representing a fully parsed template.
-data Template a = Template {
-    body :: Statement a
-    , blocks :: HashMap VarName (Block a)
-    , parent :: Maybe (Template a)
-  }
-  deriving (Show, Functor)
-
-
--- | A block definition ( @{% block %}@ )
-newtype Block a = Block {
-    bBody :: Statement a
-  } -- TODO: scoped blocks
-  deriving (Show, Functor)
+data TemplateElement
+    = Verbatim BS.ByteString  -- ^ Plain text content
+    | SourceCode BS.ByteString      -- ^ Text inside {{ and }}
+    | ParsedCode Action          -- ^ Parsed code inside {{ and }}
+    deriving (Eq)
+instance Show TemplateElement where
+  show (Verbatim text) = "Verbatim(" <> show text <> ")\n"
+  show (SourceCode text) = "SourceCode(" <> show text <> ")\n"
+  show (ParsedCode actions) = "ParsedCode(" <> show actions <> ")\n"
 
 
--- | Ginger statements.
-data Statement a
-    = MultiS a [Statement a] -- ^ A sequence of multiple statements
-    | ScopedS a (Statement a) -- ^ Run wrapped statement in a local scope
-    | IndentS a (Pipeline a) (Statement a) -- ^ Establish an indented context around the wrapped statement
-    | LiteralS a Html -- ^ Literal output (anything outside of any tag)
-    | InterpolationS a (Pipeline a) -- ^ {{ Pipeline }}
-    | PipelineS a (Pipeline a) -- ^ Evaluate Pipeline
-    | IfS a (Pipeline a) (Statement a) (Statement a) -- ^ {% if Pipeline %}statement{% else %}statement{% endif %}
-    | ForS a (Maybe VarName) VarName (Pipeline a) (Statement a) -- ^ {% for index, varname in Pipeline %}statement{% endfor %}
-    | SetVarS a VarName (Pipeline a) -- ^ {% set varname = expr %}
-    | BlockRefS a VarName
-    | NullS a -- ^ The do-nothing statement (NOP)
-    | TemplateRefS a BS.ByteString
-    | RangeS a (Pipeline a) (Statement a)
-    | ContinueS a
-    | BreakS a
-    | EndS a
-    | BlockS a BS.ByteString (Statement a)
-    -- ^ {{ with <pipeline> }} <S> [ {{ else with <pipeline> }} <S> ] [ {{ else }} <S> ] {{ end }}
-    | WithS a (Pipeline a) (Statement a) (Maybe (Maybe (Pipeline a), Statement a)) (Statement a)
-    | ReturnS a (Pipeline a)
-    | DefineS a BS.ByteString
-    deriving (Show, Functor)
+-- | Actions that can be performed within {{ ... }}
+data Action
+    = ExprS Expression                           -- ^ An expression
+    | AssignmentS AsngKind Variable Expression            -- ^ Variable assignment (e.g., {{ $var := ... }})
+    | IfS Expression                                -- [Action] (Maybe ElseBranch)     -- ^ If statement
+    | ElseIfS ElseBranch                  -- [Action] (Maybe ElseBranch) -- ^ Else-if block
+    | RangeS (Maybe RangeVars) Expression           -- [Action] (Maybe ElseBranch) -- ^ Range loop
+    | WithS Expression                              -- [Action] (Maybe ElseBranch) -- ^ With block
+    | DefineS BS.ByteString                         --  [Action] --  ^ Define a template
+    | BlockS BS.ByteString Expression                         --  [Action] -- ^ Block for template inheritance
+    | TemplateIncludeS BS.ByteString Expression         -- ^ Include a named template
+    | PartialS BS.ByteString Expression                 -- ^ Include a partial template
+    | ReturnS Expression                              -- ^ Return a value
+    | EndS                                          -- Ends an action block.
+    deriving (Show, Eq)
+
+data AsngKind =
+  DefinitionK
+  | AssignK
+  deriving (Show, Eq)
 
 
-stmtAnnotation (MultiS a _) = a
-stmtAnnotation (ScopedS a _) = a
-stmtAnnotation (IndentS a _ _) = a
-stmtAnnotation (LiteralS a _) = a
-stmtAnnotation (InterpolationS a _) = a
-stmtAnnotation (PipelineS a _) = a
-stmtAnnotation (IfS a _ _ _) = a
-stmtAnnotation (ForS a _ _ _ _) = a
-stmtAnnotation (SetVarS a _ _) = a
-stmtAnnotation (BlockRefS a _) = a
-stmtAnnotation (NullS a) = a
-stmtAnnotation (TemplateRefS a _) = a
-stmtAnnotation (RangeS a _ _) = a
-stmtAnnotation (ContinueS a) = a
-stmtAnnotation (BreakS a) = a
-stmtAnnotation (EndS a) = a
-stmtAnnotation (BlockS a _ _) = a
-stmtAnnotation (WithS a _ _ _ _) = a
-stmtAnnotation (ReturnS a _) = a
-stmtAnnotation (DefineS a _) = a
+-- | Variables used in a range loop (e.g., {{ range $index, $element := ... }})
+data RangeVars = RangeVars Variable (Maybe Variable)
+  deriving (Show, Eq)
+
+-- | Representation of an else branch in control structures
+data ElseBranch =
+    ElseB -- [Action]                    -- ^ Else block
+  | ElsePlusB PlusKind Expression -- [Action] (Maybe ElseBranch) -- ^ Else-if block
+  deriving (Show, Eq)
+
+data PlusKind =
+  IfK
+  | WithK
+  deriving (Show, Eq)
 
 
--- | Expressions, building blocks for the expression minilanguage.
-data Pipeline a
-    = StringLiteralE a BS.ByteString -- ^ String literal expression: "foobar"
-    | NumberLiteralE a Scientific Bool -- ^ Numeric literal expression: 123.4, optional Z (1) rather than Q (1.0) flag
-    | BoolLiteralE a Bool -- ^ Boolean literal expression: true
-    | VarE a [VarName] Bool Bool -- ^ Dotted sequence, with optional '$' prefix and '.' prefix.
-    | CallE a VarName [(Maybe BS.ByteString, Pipeline a)] -- ^ foo(bar=baz, quux)
-    | PipeE a (Pipeline a) (Pipeline a)
-    | ParenthizedE a (Pipeline a)
-    deriving (Show, Functor)
+-- | Variables in the template (e.g., $variable)
+data Variable = Variable VarKind BS.ByteString
+    deriving (Show, Eq)
 
-pipeAnnotation (StringLiteralE a _) = a
-pipeAnnotation (NumberLiteralE a _ _) = a
-pipeAnnotation (BoolLiteralE a _) = a
-pipeAnnotation (VarE a _ _ _) = a
-pipeAnnotation (CallE a _ _) = a
-pipeAnnotation (PipeE a _ _) = a
-pipeAnnotation (ParenthizedE a _) = a
+data VarKind =
+  LocalK
+  | MethodK
+  | LocalMethodK
+  deriving (Show, Eq)
 
-class Annotated f where
-    annotation :: f p -> p
 
-instance Annotated Pipeline where
-    annotation = pipeAnnotation
+-- | Expressions within actions
+data Expression
+    = ExprLiteral Literal                       -- ^ A literal value
+    | ExprVariable Variable                     -- ^ A variable (e.g., $var)
+    | ExprCurrentContext                        -- ^ The current context (.)
+    | ExprParentContext                         -- ^ The parent context (..)
+    | ExprMethodAccess [Variable][Expression]         -- ^ Field access (e.g., .Title)
+    | ExprFunctionCall BS.ByteString [Expression]      -- ^ Function call (e.g., printf)
+    | ExprPipeline Expression [FunctionApplication] -- ^ A pipeline of functions
+    deriving (Show, Eq)
 
-instance Annotated Statement where
-    annotation = stmtAnnotation
+-- | Application of a function in a pipeline
+data FunctionApplication = FunctionApplication BS.ByteString [Expression]
+    deriving (Show, Eq)
 
-instance Annotated Block where
-    annotation = annotation . bBody
-
-instance Annotated Template where
-    annotation = annotation . body
+-- | Literal values in expressions
+data Literal
+    = LitString BS.ByteString                          -- ^ String literal
+    | LitNumber Double                          -- ^ Numeric literal
+    | LitBool Bool                              -- ^ Boolean literal
+    deriving (Show, Eq)
