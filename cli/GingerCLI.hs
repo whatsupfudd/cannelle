@@ -30,7 +30,7 @@ import System.Exit
 
 import Text.Ginger
 import Text.Ginger.Html
-import Text.Ginger.GoParse (parseTemplateSource)
+import Text.Ginger.GoParse (parseTemplateSource, convertElements, showStatements)
 
 import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..))
 
@@ -105,14 +105,26 @@ runHugo tplSrc dataSrc = do
     TemplateFromFile fn -> do
       src <- loadFileMay fn
       case src of
-        Just string -> parseTemplateSource (Just fn) (T.encodeUtf8 . Text.pack $ string)
-        Nothing -> do
-          putStrLn $ "@[runHugo] Could not read file " <> fn
-          exitFailure
+        Just string -> do
+          rezB <- parseTemplateSource (Just fn) (T.encodeUtf8 . Text.pack $ string)
+          case rezB of
+            Left errMsg ->
+              pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
+            Right templateElements ->
+              pure $ convertElements templateElements
+        Nothing ->
+          pure . Left $ "@[runHugo] Could not read file " <> fn
     TemplateFromStdin -> do
       text <- T.encodeUtf8 . Text.pack <$> getContents
-      parseTemplateSource Nothing text
-  putStrLn $ "Result: " <> show rezA
+      rezB <- parseTemplateSource Nothing text
+      case rezB of
+        Left errMsg ->
+          pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
+        Right templateElements ->
+          pure $ convertElements templateElements
+  case rezA of
+    Left errMsg -> putStrLn errMsg
+    Right statements -> showStatements statements
 
 
 printParserError :: Maybe String -> ParserError -> IO ()

@@ -10,22 +10,26 @@ import Data.Scientific (Scientific)
 data Statement =
   VerbatimST BS.ByteString
   | ExpressionST Expression
-  | BlockST BS.ByteString Statement
-  | IfST Expression (Maybe (Statement, Maybe Statement))
-  | RangeST RangeVars Expression Statement (Maybe Statement)
-  | WithST Expression Statement (Maybe Statement)
+  | IfST Expression Statement Statement
+  | RangeST (Maybe RangeVars) Expression Statement Statement
+  | WithST Expression Statement Statement
   | DefineST BS.ByteString Statement
+  | BlockST BS.ByteString Expression Statement
   | IncludeST BS.ByteString Expression
   | PartialST BS.ByteString Expression
   | ReturnST Expression
   | VarAssignST AsngKind Variable Expression
   | ListST [Statement]
+  | NoOpST              -- ^ No operation, used to skip useless nodes without making list aggregation more complex.
+  | ContinueST
+  | BreakST
   deriving (Show, Eq)
 
 
 data NodeGast = NodeGast {
       action :: Action
     , children :: [NodeGast] 
+    , subStmts :: [Statement]
   }
   deriving (Show, Eq)
 
@@ -43,18 +47,21 @@ instance Show TemplateElement where
 
 -- | Actions that can be performed within {{ ... }}
 data Action
-    = ExprS Expression                           -- ^ An expression
+    = ExprS Expression                                    -- ^ An expression
     | AssignmentS AsngKind Variable Expression            -- ^ Variable assignment (e.g., {{ $var := ... }})
-    | IfS Expression                                -- [Action] (Maybe ElseBranch)     -- ^ If statement
-    | ElseIfS ElseBranch                  -- [Action] (Maybe ElseBranch) -- ^ Else-if block
-    | RangeS (Maybe RangeVars) Expression           -- [Action] (Maybe ElseBranch) -- ^ Range loop
-    | WithS Expression                              -- [Action] (Maybe ElseBranch) -- ^ With block
-    | DefineS BS.ByteString                         --  [Action] --  ^ Define a template
-    | BlockS BS.ByteString Expression                         --  [Action] -- ^ Block for template inheritance
+    | IfS Expression                                      -- [Action] (Maybe ElseBranch)     -- ^ If statement
+    | ElseIfS ElseBranch                                  -- [Action] (Maybe ElseBranch) -- ^ Else-if block
+    | RangeS (Maybe RangeVars) Expression                 -- [Action] (Maybe ElseBranch) -- ^ Range loop
+    | WithS Expression                                    -- [Action] (Maybe ElseBranch) -- ^ With block
+    | DefineS BS.ByteString                     --  [Action] --  ^ Define a template
+    | BlockS BS.ByteString Expression           --  [Action] -- ^ Block for template inheritance
     | TemplateIncludeS BS.ByteString Expression         -- ^ Include a named template
     | PartialS BS.ByteString Expression                 -- ^ Include a partial template
     | ReturnS Expression                              -- ^ Return a value
     | EndS                                          -- Ends an action block.
+    | ContinueS     
+    | BreakS
+    | VerbatimS BS.ByteString
     deriving (Show, Eq)
 
 data AsngKind =

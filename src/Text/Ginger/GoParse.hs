@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use guards" #-}
 
 module Text.Ginger.GoParse where
 
@@ -29,13 +31,52 @@ type Parser = M.Parsec Void BS.ByteString
 oDbg str p =
   if True then MD.dbg str p else p
 
+showStatements :: [Statement] -> IO ()
+showStatements stmts = do
+  putStrLn "Statements: ["
+  case stmts of
+    [] -> putStrLn ""
+    (h : rest) -> do
+      putStrLn $ "\t" <> show h
+      mapM_ (\s -> putStrLn $ "\t, " <> showAStmt 1 s) stmts
+  putStrLn "]"
 
-consolidateElements :: [TemplateElement] -> Either String [Statement]
-consolidateElements tElements=
+showAStmt :: Int -> Statement -> String
+showAStmt level stmt =
+  let
+    nLevel = level + 1
+    ident = replicate (nLevel * 2) ' '
+    subIdent = replicate (level * 2) ' '
+  in
+  case stmt of
+    ListST l -> "ListST: ["
+      <> foldl (\accum s -> case accum of
+          "" -> "\n  " <> ident <> showAStmt nLevel s <> "\n"
+          _ -> accum <> ident <> ", " <> showAStmt nLevel s <> "\n"
+          ) "" l
+      <> subIdent <> "]"
+    BlockST name expr bStmt ->
+      "BlockST: " <> show name <> ", expr: " <> show expr
+      <> ", body: " <> showAStmt nLevel bStmt
+    IfST expr thenSt elseSt ->
+      "IfST cond: " <> show expr
+      <> "\n" <> ident <> ", then: " <> showAStmt nLevel thenSt
+      <> "\n" <> ident <> ", else: " <> showAStmt nLevel elseSt
+    RangeST rangeVars expr loopStmt elseStmt ->
+      "RangeST rangeVars: " <> show rangeVars <> ", expr: " <> show expr
+      <> "\n" <> ident <> ", loop: " <> showAStmt nLevel loopStmt
+      <> "\n" <> ident <> ", else: " <> showAStmt nLevel elseStmt
+    _ -> show stmt
+
+
+convertElements :: [TemplateElement] -> Either String [Statement]
+convertElements tElements=
   let
     rez = foldM (\(accum, stack) tEle ->
       case tEle of
-        Verbatim text -> Right $ (accum <> [ VerbatimST text ], stack)
+        Verbatim text -> case stack of
+          [] -> Right (accum <> [ VerbatimST text ], stack)
+          h : rest -> Right (accum, h { children = NodeGast (VerbatimS text) [] []: h.children } : rest)
         SourceCode text -> Left $ "@[consolidateElements] source-code still present in template elements, it should have been parsed: " <> show text
         ParsedCode action -> handleAction (accum, stack) action
       ) ([], []) tElements
@@ -46,77 +87,171 @@ consolidateElements tElements=
   where
   -- TODO: figure out the merging of all statements.
   handleAction :: ([Statement], [NodeGast]) -> Action -> Either String ([Statement], [NodeGast])
-  handleAction (accum, stack) (ExprS expr) = Right (accum, stack)
-  handleAction (accum, stack) (AssignmentS assignKind var expr) = Right (accum, stack)
-  handleAction (accum, stack) (IfS expr) = Right (accum, stack)
-  handleAction (accum, stack) (ElseIfS elseBranch) = Right (accum, stack)
-  handleAction (accum, stack) (RangeS maybeRangeVars expr) = Right (accum, stack)
-  handleAction (accum, stack) (WithS expr) = Right (accum, stack)
-  handleAction (accum, stack) (DefineS name) = Right (accum, stack)
-  handleAction (accum, stack) (BlockS name expr) = Right (accum, stack)
-  handleAction (accum, stack) (TemplateIncludeS name expr) = Right (accum, stack)
-  handleAction (accum, stack) (PartialS name expr) = Right (accum, stack)
-  handleAction (accum, stack) (ReturnS expr) = Right (accum, stack)
+  handleAction state action@(ExprS expr) = pushSimpleAction state action (ExpressionST expr)
+  handleAction state action@(AssignmentS assignKind var expr) = pushSimpleAction state action (VarAssignST assignKind var expr)
+  handleAction state action@(TemplateIncludeS name expr) = pushSimpleAction state action (IncludeST name expr)
+  handleAction state action@(PartialS name expr) = pushSimpleAction state action (PartialST name expr)
+  handleAction state action@(ReturnS expr) = pushSimpleAction state action (ReturnST expr)
+  handleAction (accum, stack) action@(IfS expr) = Right (accum, NodeGast action [] [] : stack)
+  handleAction (accum, stack) action@(RangeS maybeRangeVars expr) = Right (accum, NodeGast action [] [] : stack)
+  handleAction (accum, stack) action@(WithS expr) = Right (accum, NodeGast action [] [] : stack)
+  handleAction (accum, stack) action@(DefineS name) = Right (accum, NodeGast action [] [] : stack)
+  handleAction (accum, stack) action@(BlockS name expr) = Right (accum, NodeGast action [] [] : stack)
+  handleAction (accum, stack) action@(ElseIfS elseBranch) =
+    if null stack then
+      Left $ "@[handleAction] empty stack on ElseIfS!"
+    else
+      Right (accum, NodeGast action [] [] : stack)
   handleAction (accum, stack) EndS =
     if null stack then
       Left $ "@[handleAction] empty stack on EndS!"
     else
-    let
-      newState = mkStmt stack
-    in
-    case newState of
-      Left errMsg -> Left errMsg
-      Right (nStmt, nStack) -> Right (accum <> [nStmt], nStack)
-
-
-mkStmt :: [NodeGast] -> Either String (Statement, [NodeGast])
-mkStmt (hNode : rest) =
-  case hNode.action of
-    ExprS expr -> Right (ExpressionST expr, rest)
-    AssignmentS assignKind var expr ->
-      if null hNode.children then
-        Left $ "@[mkStmt] unexpected children in AssignementS" <> show hNode
-      else
-        Right (VarAssignST assignKind var expr, rest)
-    {-
-    IfS expr ->
-      if null hNode.children then
-        Right (IfST expr Nothing, rest)
-      else
       let
-        revChildren = reverse hNode.children
-        childrenStmts = foldM (\(accumStmt, leftOver) stmt ->
-            let
-              rezA = mkStmtChildren stmt
-            in
-            case rezA of
-              Left err -> Left err
-              Right (stmt, nLeftOver) -> Right (accumStmt <> [stmt], leftOver <> nLeftOver)
-          ) ([], []) revChildren
+        newState = unstackNodes stack
       in
-      case childrenStmts of
-        Left err -> Left err
-        Right (children, leftOver) -> Right (IfST expr $ Just (ListST children, rest), rest)
-    ElseIfS expr -> Right $ ElseIfST expr (children nodeGast)
-    RangeS vars expr -> Right $ RangeST vars expr (children nodeGast)
-    WithS expr -> Right $ WithST expr (children nodeGast)
-    DefineS name -> Right $ DefineST name (children nodeGast)
-    BlockS name expr -> Right $ BlockST name expr (children nodeGast)
-    TemplateIncludeS name expr -> Right $ TemplateIncludeST name expr (children nodeGast)
-    PartialS name expr -> Right $ PartialST name expr (children nodeGast)
-    ReturnS expr -> Right $ ReturnST expr
-  where
-  mkStmtChildren :: NodeGast -> Either String (Statement, [NodeGast])
-  mkStmtChildren node =
-    let
-      rezA = mkStmt node.children
-    in
-    case rezA of
-      Left err -> Left err
-      Right (stmt, nLeftOver) -> Right (accumStmt <> [stmt], leftOver <> nLeftOver)
-    -}
+      case newState of
+        Left errMsg -> Left errMsg
+        Right (nStmt, nStack) ->
+          case nStack of
+            [] -> Right (accum <> [nStmt], [])
+            h : rest -> Right (accum, h { subStmts = h.subStmts <> [nStmt] } : rest)
 
-parseTemplateSource :: Maybe String ->BS.ByteString -> IO (Either (M.ParseErrorBundle BS.ByteString Void) [TemplateElement])
+
+pushSimpleAction :: ([Statement], [NodeGast]) -> Action -> Statement -> Either String ([Statement], [NodeGast])
+pushSimpleAction (accum, stack) action potentialStmt =
+  if null stack then
+    let
+      eiStmt = simpleActionToStatement action
+    in
+      case eiStmt of
+        Left err -> Left err
+        Right stmt -> Right (accum <> [stmt], [])
+  else
+    let
+      (h:rest) = stack
+      newH = h { children = NodeGast action [] []: h.children }
+    in
+    Right (accum, newH : rest)
+
+
+
+isSimpleUnstack :: Action -> Bool
+isSimpleUnstack action
+  | RangeS _ _ <- action = True
+  | WithS _ <- action = True
+  | DefineS _ <- action = True
+  | BlockS _ _ <- action = True
+  | IfS _ <- action = True
+  | otherwise = False
+
+
+unstackNodes :: [NodeGast] -> Either String (Statement, [NodeGast])
+unstackNodes [] = Left "@[unstackNodes] trying to unstack an empty NodeGast stack!"
+unstackNodes (topNode : rest) =
+  if isSimpleUnstack topNode.action then
+    let
+      eiStmt = consolidateChildren topNode.children
+    in
+    case eiStmt of
+      Left errMsg -> Left errMsg
+      Right childrenStmt ->
+        let
+          combinedStmts = joinStatements childrenStmt topNode.subStmts
+          newStmt = case topNode.action of
+            RangeS rangeVars expr -> RangeST rangeVars expr combinedStmts NoOpST
+            WithS expr -> WithST expr combinedStmts NoOpST
+            DefineS name -> DefineST name combinedStmts
+            BlockS name expr -> BlockST name expr combinedStmts
+            IfS expr -> IfST expr combinedStmts NoOpST
+        in
+        Right (newStmt, rest)
+  else
+    case topNode.action of
+      ElseIfS elseDetails ->
+          handleElseIf elseDetails topNode.children rest
+      _ -> Left $ "@[unstackNodes] unexpected node for unstacking: " <> show topNode
+
+
+joinStatements :: Statement -> [Statement] -> Statement
+joinStatements stmt aList =
+  case stmt of
+    NoOpST ->
+      case aList of
+        [] -> NoOpST
+        [ h ] -> h
+        h : rest -> ListST aList
+    ListST l1 -> ListST (l1 <> aList)
+    _ -> ListST (stmt : aList)
+
+
+matchSimpleElse :: Action -> Bool
+matchSimpleElse action
+  | RangeS _ _ <- action = True
+  | WithS _ <- action = True
+  | IfS _ <- action = True
+  | otherwise = False
+
+-- ^ takes care of unrolling the stack for an else-if node; receives details, children and stack.
+handleElseIf :: ElseBranch -> [NodeGast] -> [NodeGast] -> Either String (Statement, [NodeGast])
+handleElseIf _ _ [] = Left "@[unstackNodes] unexpected empty stack on ElseIfS handling!"
+handleElseIf ElseB children (prevNode : rest) =
+  if matchSimpleElse prevNode.action then
+    let
+      eiElseB = consolidateChildren children
+      eiPrevB = consolidateChildren prevNode.children
+      (builder, builderName) = case prevNode.action of
+        RangeS mbVarDef expr -> (RangeST mbVarDef expr, "range")
+        WithS expr -> (WithST expr, "with")
+        IfS expr -> (IfST expr, "if")
+    in
+    (,) <$> fuseTwoNodes builder builderName (eiElseB, eiPrevB) <*> Right rest
+  else case prevNode.action of
+    ElseIfS details -> Left "@[unstackNodes] unimplemented ElseIfS unrolling!"
+    _ -> Left $ "@[unstackNodes] previous node in stack isn't compatible with a else node: " <> show prevNode
+
+handleElseIf (ElsePlusB kind expr) children (prevNode : rest) =
+  Left "@[unstackNodes] unimplemented ElsePlusB unrolling!"
+
+
+fuseTwoNodes :: (Statement -> Statement -> Statement) -> String -> (Either String Statement, Either String Statement) -> Either String Statement
+fuseTwoNodes builder builderName twoChildren =
+  case twoChildren of
+    (Right elseB, Right prevB) ->
+      if elseB == NoOpST && prevB == NoOpST then
+        Right NoOpST
+      else
+        Right $ builder prevB elseB
+    (Left errMsgA, Left errMsgB) ->
+      Left $ "@[unstackNodes] error consolidating children for " <> builderName <> "-else branches: " <> errMsgA <> ", " <> errMsgB <> "."
+    (Left errMsg, _) ->
+      Left $ "@[unstackNodes] error consolidating children for else branch of " <> builderName <> ": " <> errMsg
+    (_, Left errMsg) ->
+      Left $ "@[unstackNodes] error consolidating children for " <> builderName <> " branch (continued with an else): " <> errMsg
+
+
+consolidateChildren :: [NodeGast] -> Either String Statement
+consolidateChildren children =
+  case children of
+    [] -> Right NoOpST
+    [h] -> simpleActionToStatement h.action
+    l -> ListST <$> mapM (\node -> simpleActionToStatement node.action) (reverse l)
+
+
+simpleActionToStatement :: Action -> Either String Statement
+simpleActionToStatement action =
+  case action of
+    ExprS expr -> Right $ ExpressionST expr
+    AssignmentS assignKind var expr -> Right $ VarAssignST assignKind var expr
+    TemplateIncludeS name expr -> Right $ IncludeST name expr
+    PartialS name expr -> Right $ PartialST name expr
+    ReturnS expr -> Right $ ReturnST expr
+    ContinueS -> Right ContinueST
+    BreakS -> Right BreakST
+    VerbatimS text -> Right $ VerbatimST text
+    _ -> Left $ "@[simpleActionToStatement] illegal action: " <> show action
+
+
+parseTemplateSource :: Maybe String ->BS.ByteString -> IO (Either String [TemplateElement])
 parseTemplateSource mbFileName input =
   let
     fileName = fromMaybe "<<unk>>" mbFileName
@@ -124,7 +259,7 @@ parseTemplateSource mbFileName input =
     case parseTemplate fileName input of
         Left err -> do
           -- putStrLn $ "@[parseTemplateSource] error: " <> M.errorBundlePretty err
-          pure $ Left err
+          pure . Left $ M.errorBundlePretty err
         Right elements -> do
           -- putStrLn $ "@[parseTemplateSource] elements: " <> show elements
           rezA <- foldM (\accum anEle ->
@@ -142,10 +277,9 @@ parseTemplateSource mbFileName input =
             ) (Right []) elements
           case rezA of
             Left err -> do
-              putStrLn $ M.errorBundlePretty err
-              pure $ Left err
+              pure . Left $ M.errorBundlePretty err
             Right results -> do
-              -- putStrLn $ "Parsed Actions: " <> show results
+              putStrLn $ "Parsed Actions: " <> show results
               pure . Right $ results
 
 
