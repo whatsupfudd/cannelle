@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Text.Ginger.GoParse where
 
@@ -30,6 +29,92 @@ type Parser = M.Parsec Void BS.ByteString
 oDbg str p =
   if True then MD.dbg str p else p
 
+
+consolidateElements :: [TemplateElement] -> Either String [Statement]
+consolidateElements tElements=
+  let
+    rez = foldM (\(accum, stack) tEle ->
+      case tEle of
+        Verbatim text -> Right $ (accum <> [ VerbatimST text ], stack)
+        SourceCode text -> Left $ "@[consolidateElements] source-code still present in template elements, it should have been parsed: " <> show text
+        ParsedCode action -> handleAction (accum, stack) action
+      ) ([], []) tElements
+  in
+  case rez of
+    Left err -> Left err
+    Right (statements, _) -> Right statements
+  where
+  -- TODO: figure out the merging of all statements.
+  handleAction :: ([Statement], [NodeGast]) -> Action -> Either String ([Statement], [NodeGast])
+  handleAction (accum, stack) (ExprS expr) = Right (accum, stack)
+  handleAction (accum, stack) (AssignmentS assignKind var expr) = Right (accum, stack)
+  handleAction (accum, stack) (IfS expr) = Right (accum, stack)
+  handleAction (accum, stack) (ElseIfS elseBranch) = Right (accum, stack)
+  handleAction (accum, stack) (RangeS maybeRangeVars expr) = Right (accum, stack)
+  handleAction (accum, stack) (WithS expr) = Right (accum, stack)
+  handleAction (accum, stack) (DefineS name) = Right (accum, stack)
+  handleAction (accum, stack) (BlockS name expr) = Right (accum, stack)
+  handleAction (accum, stack) (TemplateIncludeS name expr) = Right (accum, stack)
+  handleAction (accum, stack) (PartialS name expr) = Right (accum, stack)
+  handleAction (accum, stack) (ReturnS expr) = Right (accum, stack)
+  handleAction (accum, stack) EndS =
+    if null stack then
+      Left $ "@[handleAction] empty stack on EndS!"
+    else
+    let
+      newState = mkStmt stack
+    in
+    case newState of
+      Left errMsg -> Left errMsg
+      Right (nStmt, nStack) -> Right (accum <> [nStmt], nStack)
+
+
+mkStmt :: [NodeGast] -> Either String (Statement, [NodeGast])
+mkStmt (hNode : rest) =
+  case hNode.action of
+    ExprS expr -> Right (ExpressionST expr, rest)
+    AssignmentS assignKind var expr ->
+      if null hNode.children then
+        Left $ "@[mkStmt] unexpected children in AssignementS" <> show hNode
+      else
+        Right (VarAssignST assignKind var expr, rest)
+    {-
+    IfS expr ->
+      if null hNode.children then
+        Right (IfST expr Nothing, rest)
+      else
+      let
+        revChildren = reverse hNode.children
+        childrenStmts = foldM (\(accumStmt, leftOver) stmt ->
+            let
+              rezA = mkStmtChildren stmt
+            in
+            case rezA of
+              Left err -> Left err
+              Right (stmt, nLeftOver) -> Right (accumStmt <> [stmt], leftOver <> nLeftOver)
+          ) ([], []) revChildren
+      in
+      case childrenStmts of
+        Left err -> Left err
+        Right (children, leftOver) -> Right (IfST expr $ Just (ListST children, rest), rest)
+    ElseIfS expr -> Right $ ElseIfST expr (children nodeGast)
+    RangeS vars expr -> Right $ RangeST vars expr (children nodeGast)
+    WithS expr -> Right $ WithST expr (children nodeGast)
+    DefineS name -> Right $ DefineST name (children nodeGast)
+    BlockS name expr -> Right $ BlockST name expr (children nodeGast)
+    TemplateIncludeS name expr -> Right $ TemplateIncludeST name expr (children nodeGast)
+    PartialS name expr -> Right $ PartialST name expr (children nodeGast)
+    ReturnS expr -> Right $ ReturnST expr
+  where
+  mkStmtChildren :: NodeGast -> Either String (Statement, [NodeGast])
+  mkStmtChildren node =
+    let
+      rezA = mkStmt node.children
+    in
+    case rezA of
+      Left err -> Left err
+      Right (stmt, nLeftOver) -> Right (accumStmt <> [stmt], leftOver <> nLeftOver)
+    -}
 
 parseTemplateSource :: Maybe String ->BS.ByteString -> IO (Either (M.ParseErrorBundle BS.ByteString Void) [TemplateElement])
 parseTemplateSource mbFileName input =

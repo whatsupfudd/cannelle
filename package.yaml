@@ -34,6 +34,12 @@ dependencies:
   # Newer stuff
   - megaparsec
 
+default-extensions:
+- OverloadedStrings
+- DuplicateRecordFields
+- OverloadedRecordDot
+
+
 library:
   source-dirs: src
 

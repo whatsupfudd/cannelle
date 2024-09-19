@@ -7,6 +7,29 @@ import Data.Text (Text)
 import Data.Scientific (Scientific)
 
 
+data Statement =
+  VerbatimST BS.ByteString
+  | ExpressionST Expression
+  | BlockST BS.ByteString Statement
+  | IfST Expression (Maybe (Statement, Maybe Statement))
+  | RangeST RangeVars Expression Statement (Maybe Statement)
+  | WithST Expression Statement (Maybe Statement)
+  | DefineST BS.ByteString Statement
+  | IncludeST BS.ByteString Expression
+  | PartialST BS.ByteString Expression
+  | ReturnST Expression
+  | VarAssignST AsngKind Variable Expression
+  | ListST [Statement]
+  deriving (Show, Eq)
+
+
+data NodeGast = NodeGast {
+      action :: Action
+    , children :: [NodeGast] 
+  }
+  deriving (Show, Eq)
+
+
 data TemplateElement
     = Verbatim BS.ByteString  -- ^ Plain text content
     | SourceCode BS.ByteString      -- ^ Text inside {{ and }}
