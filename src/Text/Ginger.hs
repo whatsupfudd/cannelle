@@ -6,6 +6,9 @@ Ginger aims to be as close to the original Jinja language as possible, but
 avoiding blatant pythonisms and features that make little sense outside of
 an impure dynamic host language context, especially when this would require
 sacrificing runtime performance.
+
+GoHugo aims to be 100% compatible with the Hugo template system.
+
 -}
 
 module Text.Ginger
@@ -45,7 +48,7 @@ module Text.Ginger
 
 -- These delimiters can be changed on the Haskell side. In principle, any
 -- string is accepted for any delimiter; you may, however, get surprising
--- results if you pick delimiters that clash with other Ginger syntax, or with
+-- results if you pick delimiters that clash with other Jinja syntax, or with
 -- one another (e.g., using the same string to start interpolations and flow
 -- control constructs will not work). See the 'ParserOptions' and 'Delimiters'
 -- data structures for more details.
@@ -77,7 +80,7 @@ module Text.Ginger
 
 -- ** Expressions
 -- | Variables aren't the only thing that can go inside @{{ ... }}@; any valid
--- Ginger expression can be used, and expressions can be constructed in many
+-- Jinja expression can be used, and expressions can be constructed in many
 -- different ways. Note that all expressions are case sensitive: @null@ and
 -- @Null@ are not the same thing.
 -- Currently, the following constructs are available:
@@ -183,12 +186,12 @@ module Text.Ginger
 
 -- | > {{ append(x, "foobar") }}
 
--- | A list of available filters can be found in the 'Text.Ginger.Run' module.
+-- | A list of available filters can be found in the 'Text.Cannelle.Run' module.
 
--- | /Deviation from Jinja2:/ Ginger does not distinguish between filters and
+-- | /Deviation from Jinja2:/ there is no distinguishing between filters and
 -- functions at the semantics level; any function can be called as a filter,
 -- and vv., and the filter syntax is merely a syntactic variant of a function
--- call. Ginger doesn't really distinguish between functions and values,
+-- call. And there isn't real differences between functions and values,
 -- either: a function is a value that happens to be callable; other than that,
 -- functions live in the same namespace as any other value, and if you bind
 -- a function to a context value on the host side, you can use it just like
@@ -230,9 +233,9 @@ module Text.Ginger
 -- which is then fed to 'runGinger' or 'runGingerT'.
 
 -- **  Parsing
--- | Because Ginger templates can include other templates, the parser needs a way of
+-- | Because Jinj templates can include other templates, the parser needs a way of
 -- resolving template names. Instead of hard-wiring the parser into 'IO' though,
--- Ginger will work on any Monad type, but requires the caller to provide a
+-- The Ginger logic will work on any Monad type, but requires the caller to provide a
 -- suitable template resolver function. For 'IO', the resolver would typically
 -- load a file from a template directory, but other monads might have access to
 -- some sort of cache, or expose template compiled into a program, or simply
@@ -250,14 +253,14 @@ module Text.Ginger
 -- >                 print err -- remove this line if you want to fail silently
 -- >                 return Nothing
 
--- | (Taken from @cli/GingerCLI.hs@). This interprets the template name as a
+-- | (Taken from @cli/CannelleCLI.hs@). This interprets the template name as a
 -- filename relative to the CWD, and returns the file contents on success or
 -- 'Nothing' if there is any error.
 
 -- | If you don't need a monadic context for resolving includes (e.g. because you
 -- have pre-loaded all template sources), you can use the pure 'parseGinger'
 -- flavor, which does not rely on a host monad.
-  module Text.Ginger.JinjaParse
+  module Text.Cannelle.JinjaParse
 
 -- ** Running
 -- | The core function for running a template is 'runGinger' (or its monadic
@@ -270,24 +273,24 @@ module Text.Ginger
 
 -- | > runGingerT (makeContextM scopeLookup (putStr . Text.unpack . htmlSource)) tpl
 
-, module Text.Ginger.Run
+, module Text.Cannelle.Run
 
 -- ** Other concerns
 -- *** GVal: Ginger's unitype value
-, module Text.Ginger.GVal
+, module Text.Cannelle.GVal
 
 -- *** AST
 -- | The data structures used to represent templates, statements and
 -- expressions internally.
-, module Text.Ginger.JinjaAST
+, module Text.Cannelle.JinjaAST
 
 -- *** Optimizer
 -- | An optimizing AST rewriter
-, module Text.Ginger.Optimizer
+, module Text.Cannelle.Optimizer
 )
 where
-import Text.Ginger.JinjaParse
-import Text.Ginger.Optimizer
-import Text.Ginger.JinjaAST
-import Text.Ginger.Run
-import Text.Ginger.GVal
+import Text.Cannelle.JinjaParse
+import Text.Cannelle.Optimizer
+import Text.Cannelle.JinjaAST
+import Text.Cannelle.Run
+import Text.Cannelle.GVal

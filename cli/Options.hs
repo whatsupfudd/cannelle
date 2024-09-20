@@ -27,7 +27,7 @@ parseOptions :: [String] -> IO Options
 parseOptions args =
   execParser $ info (options <**> helper) (
        fullDesc
-    <> header "ginger - A command-line interface for the Ginger template language"
+    <> header "canelle - A command-line interface for the Jinja and Hugo template languages."
   )
 
 

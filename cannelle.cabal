@@ -4,11 +4,11 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 
-name:           canelle
+name:           cannelle
 version:        0.10.5.3
-description:    Forked from Ginger. Please see the README on GitHub at <https://github.com/hugodrw/fudd/canelle>
-homepage:       https://github.com/whatsupfudd/canelle#readme
-bug-reports:    https://github.com/whatsupfudd/canelle/issues
+description:    Forked from the Ginger project. Please see the README on GitHub at <https://github.com/hugodrw/fudd/cannelle>
+homepage:       https://github.com/whatsupfudd/cannelle#readme
+bug-reports:    https://github.com/whatsupfudd/cannelle/issues
 author:         Hugo DesRosiers
 maintainer:     hugo.desrosiers@boardingcities.com
 copyright:      Boarding Cities
@@ -20,26 +20,26 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/whatsupfudd/canelle
+  location: https://github.com/whatsupfudd/cannelle
 
 library
   exposed-modules:
+      Text.Cannelle.GoAST
+      Text.Cannelle.GoParse
+      Text.Cannelle.GVal
+      Text.Cannelle.Html
+      Text.Cannelle.JinjaAST
+      Text.Cannelle.JinjaParse
+      Text.Cannelle.Optimizer
+      Text.Cannelle.Run
+      Text.Cannelle.Run.Builtins
+      Text.Cannelle.Run.FuncUtils
+      Text.Cannelle.Run.Type
+      Text.Cannelle.Run.VM
       Text.Ginger
-      Text.Ginger.GoAST
-      Text.Ginger.GoParse
-      Text.Ginger.GVal
-      Text.Ginger.Html
-      Text.Ginger.JinjaAST
-      Text.Ginger.JinjaParse
-      Text.Ginger.Optimizer
-      Text.Ginger.Run
-      Text.Ginger.Run.Builtins
-      Text.Ginger.Run.FuncUtils
-      Text.Ginger.Run.Type
-      Text.Ginger.Run.VM
       Text.PrintfA
   other-modules:
-      Paths_canelle
+      Paths_cannelle
   hs-source-dirs:
       src
   default-extensions:
@@ -69,11 +69,11 @@ library
     , vector >=0.12.0.2 && <0.14
   default-language: Haskell2010
 
-executable canelle
-  main-is: GingerCLI.hs
+executable cannelle
+  main-is: CannelleCLI.hs
   other-modules:
       Options
-      Paths_canelle
+      Paths_cannelle
   hs-source-dirs:
       cli
   default-extensions:
@@ -86,7 +86,7 @@ executable canelle
     , aeson-pretty >=0.8.7 && <0.9
     , base >=4.8 && <5
     , bytestring >=0.10.8.2 && <0.12
-    , canelle
+    , cannelle
     , containers >=0.6.4 && <0.7
     , data-default >=0.5 && <0.8
     , filepath >=1.3 && <1.5
@@ -108,13 +108,13 @@ executable canelle
     , yaml >=0.11.0.0 && <0.12
   default-language: Haskell2010
 
-test-suite canelle-test
+test-suite cannelle-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
       Text.Ginger.PropertyTests
       Text.Ginger.SimulationTests
-      Paths_canelle
+      Paths_cannelle
   hs-source-dirs:
       test
   default-extensions:

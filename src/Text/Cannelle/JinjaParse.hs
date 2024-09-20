@@ -4,8 +4,8 @@
 {-#LANGUAGE DeriveGeneric #-}
 {-#LANGUAGE FlexibleInstances #-}
 {-#LANGUAGE MultiParamTypeClasses #-}
--- | Ginger parser.
-module Text.Ginger.JinjaParse
+-- | Jinja parser.
+module Text.Cannelle.JinjaParse
 ( parseGinger
 , parseGingerFile
 , parseGinger'
@@ -75,9 +75,9 @@ import Data.Char (isSpace)
 import System.FilePath ( takeDirectory, (</>) )
 import Text.Printf ( printf )
 
-import Text.Ginger.JinjaAST
-import Text.Ginger.Html ( unsafeRawHtml )
-import Text.Ginger.GVal (GVal, ToGVal (..), dict, (~>))
+import Text.Cannelle.JinjaAST
+import Text.Cannelle.Html ( unsafeRawHtml )
+import Text.Cannelle.GVal (GVal, ToGVal (..), dict, (~>))
 
 -- | Input type for the parser (source code).
 type Source = String
@@ -150,7 +150,7 @@ fromParsecError e =
             $ errorMessages e)
         (Just $ errorPos e)
 
--- | Parse Ginger source from a file. Both the initial template and all
+-- | Parse a file that is a Jinja template. Both the initial template and all
 -- subsequent includes are loaded through the provided 'IncludeResolver'. A
 -- consequence of this is that if you pass a \"null resolver\" (like `const
 -- (return Nothing)`), this function will always fail.
@@ -166,7 +166,7 @@ parseGingerFile resolver sourceName =
             (mkParserOptions resolver)
                 { poSourceName = Just sourceName }
 
--- | Parse Ginger source from memory. The initial template is taken directly
+-- | Parse Jinja template source from memory. The initial template is taken directly
 -- from the provided 'Source', while all subsequent includes are loaded through
 -- the provided 'IncludeResolver'.
 parseGinger :: forall m. Monad m
@@ -182,7 +182,7 @@ parseGinger resolver sourceName source =
             (mkParserOptions resolver)
                 { poSourceName = sourceName }
 
--- | Parse Ginger source from a file. Flavor of 'parseGingerFile' that takes
+-- | Parse Jinja template source from a file. Flavor of 'parseGingerFile' that takes
 -- additional 'ParserOptions'.
 parseGingerFile' :: Monad m => ParserOptions m -> SourceName -> m (Either ParserError (Template SourcePos))
 parseGingerFile' opts' fn = do
@@ -197,7 +197,7 @@ parseGingerFile' opts' fn = do
                 }
         Just src -> parseGinger' opts src
 
--- | Parse Ginger source from memory. Flavor of 'parseGinger' that takes
+-- | Parse Jinja template from memory. Flavor of 'parseGinger' that takes
 -- additional 'ParserOptions'.
 parseGinger' :: Monad m => ParserOptions m -> Source -> m (Either ParserError (Template SourcePos))
 parseGinger' opts src = do

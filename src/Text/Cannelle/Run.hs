@@ -6,7 +6,7 @@
 {-#LANGUAGE MultiParamTypeClasses #-}
 {-#LANGUAGE ScopedTypeVariables #-}
 {-#LANGUAGE LambdaCase #-}
--- | Execute Ginger templates in an arbitrary monad.
+-- | Execute Jinja templates in an arbitrary monad.
 --
 -- Usage example:
 --
@@ -19,7 +19,7 @@
 -- >                _ -> def -- def for GVal is equivalent to a NULL value
 -- >        context = makeContextHtml contextLookup
 -- >    in htmlSource $ runGinger context template
-module Text.Ginger.Run
+module Text.Cannelle.Run
 (
 -- * The \"easy\" interface
 -- | Provides a straightforward way of rendering templates monadically
@@ -87,7 +87,7 @@ import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.List as List
 import Text.Printf
 import Text.PrintfA
-import Text.Ginger.JinjaParse (parseGinger, ParserError)
+import Text.Cannelle.JinjaParse (parseGinger, ParserError)
 import Control.Monad.Trans.Except (runExceptT, catchE)
 
 import Data.Text (Text)
@@ -114,13 +114,13 @@ import Data.List (lookup, zipWith, unzip)
 import Data.Monoid (Monoid (..), (<>))
 import Data.Aeson as JSON
 
-import Text.Ginger.JinjaAST
-import Text.Ginger.Html
-import Text.Ginger.GVal
-import Text.Ginger.Run.Type
-import Text.Ginger.Run.Builtins
-import Text.Ginger.Run.FuncUtils
-import Text.Ginger.Run.VM
+import Text.Cannelle.JinjaAST
+import Text.Cannelle.Html
+import Text.Cannelle.GVal
+import Text.Cannelle.Run.Type
+import Text.Cannelle.Run.Builtins
+import Text.Cannelle.Run.FuncUtils
+import Text.Cannelle.Run.VM
 
 
 defaultScope :: forall m h p
@@ -269,7 +269,7 @@ easyRender :: ( ContextEncodable h
 easyRender context template =
     execWriter $ easyRenderM tell context template
 
--- | Purely expand a Ginger template. The underlying carrier monad is 'Writer'
+-- | Purely expand a Jinja template. The underlying carrier monad is 'Writer'
 -- 'h', which is used to collect the output and render it into a 'h'
 -- value.
 runGinger :: ( ToGVal (Run p (Writer h) h) h
@@ -282,7 +282,7 @@ runGinger :: ( ToGVal (Run p (Writer h) h) h
 runGinger context template =
     execWriter $ runGingerT context template
 
--- | Monadically run a Ginger template. The @m@ parameter is the carrier monad.
+-- | Monadically run a Jinja template. The @m@ parameter is the carrier monad.
 runGingerT :: ( ToGVal (Run p m h) h
               , ToGVal (Run p m h) p
               , Monoid h

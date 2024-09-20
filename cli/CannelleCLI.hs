@@ -1,4 +1,4 @@
--- | An example Ginger CLI application.
+-- | CLI application for testing the Cannelle template system.
 --
 -- Takes two optional arguments; the first one is a template file, the second
 -- one a file containing some context data in JSON format.
@@ -29,8 +29,8 @@ import Text.Printf (printf)
 import System.Exit
 
 import Text.Ginger
-import Text.Ginger.Html
-import Text.Ginger.GoParse (parseTemplateSource, convertElements, showStatements)
+import Text.Cannelle.Html
+import Text.Cannelle.GoParse (parseTemplateSource, convertElements, showStatements)
 
 import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..))
 

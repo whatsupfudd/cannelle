@@ -1,4 +1,4 @@
-module Text.Ginger.Run.VM
+module Text.Cannelle.Run.VM
 where
 
 import Data.Monoid ( (<>) )
@@ -7,10 +7,10 @@ import Control.Monad.Reader (asks, local)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 
-import Text.Ginger.Run.Type
-import Text.Ginger.Run.FuncUtils
-import Text.Ginger.JinjaAST
-import Text.Ginger.GVal
+import Text.Cannelle.Run.Type
+import Text.Cannelle.Run.FuncUtils
+import Text.Cannelle.JinjaAST
+import Text.Cannelle.GVal
 
 
 -- | Helper function to run a State action with a temporary state, reverting

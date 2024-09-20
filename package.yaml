@@ -1,6 +1,6 @@
-name:                canelle
+name:                cannelle
 version:             0.10.5.3
-github:              "whatsupfudd/canelle"
+github:              "whatsupfudd/cannelle"
 license:             BSD3
 author:              "Hugo DesRosiers"
 maintainer:          "hugo.desrosiers@boardingcities.com"
@@ -9,7 +9,7 @@ copyright:           "Boarding Cities"
 extra-source-files:
 - README.md
 
-description: Forked from Ginger. Please see the README on GitHub at <https://github.com/hugodrw/fudd/canelle>
+description: Forked from the Ginger project. Please see the README on GitHub at <https://github.com/hugodrw/fudd/cannelle>
 
 dependencies:
   - base >=4.8 && <5
@@ -44,8 +44,8 @@ library:
   source-dirs: src
 
 executables:
-  canelle:
-    main: GingerCLI.hs
+  cannelle:
+    main: CannelleCLI.hs
     source-dirs: cli
     ghc-options:
     - -threaded
@@ -53,13 +53,13 @@ executables:
     - -with-rtsopts=-N
     - -O2
     dependencies:
-      - canelle
+      - cannelle
       - optparse-applicative >=0.14.3.0 && <0.19
       - process >=1.6.5.0 && <1.7
       - yaml >=0.11.0.0 && <0.12
 
 tests:
-  canelle-test:
+  cannelle-test:
     main: Spec.hs
     source-dirs: test
 

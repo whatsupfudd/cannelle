@@ -1,5 +1,5 @@
--- | Implements Ginger's Abstract Syntax Tree.
-module Text.Ginger.GoAST
+-- | Implements Hugo's Abstract Syntax Tree (based on golang/templates).
+module Text.Cannelle.GoAST
 where
 
 import qualified Data.ByteString as BS

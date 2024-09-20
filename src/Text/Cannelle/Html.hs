@@ -6,7 +6,7 @@
 {-#LANGUAGE GeneralizedNewtypeDeriving #-}
 {-#LANGUAGE OverloadedStrings #-}
 {-#LANGUAGE FlexibleInstances #-}
-module Text.Ginger.Html
+module Text.Cannelle.Html
 ( Html
 , unsafeRawHtml
 , html

@@ -15,7 +15,7 @@
 -- to parametrize the values themselves over the carrier monad is because we
 -- want to support impure functions, which requires access to the underlying
 -- carrier monad (e.g. 'IO').
-module Text.Ginger.GVal
+module Text.Cannelle.GVal
 where
 
 import Prelude ( (.), ($), (==), (/=)
@@ -92,7 +92,7 @@ import qualified Data.ByteString.Lazy as LBS
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import qualified Data.Text.Lazy.Encoding as LText
 
-import Text.Ginger.Html
+import Text.Cannelle.Html
 
 -- * The Ginger Value type
 --

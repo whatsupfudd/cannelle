@@ -13,7 +13,7 @@
 -- will not normally need to import this module, unless you want to provide
 -- your own context with things that reuse functionality from the default
 -- ones.
-module Text.Ginger.Run.Builtins
+module Text.Cannelle.Run.Builtins
 where
 
 import Prelude ( (.), ($), (==), (/=)
@@ -86,12 +86,12 @@ import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Encode.Pretty as JSON
 import qualified Text.Regex.TDFA as RE
 
-import Text.Ginger.JinjaAST
-import Text.Ginger.Html
-import Text.Ginger.GVal
-import Text.Ginger.Run.Type
-import Text.Ginger.Run.FuncUtils
-import Text.Ginger.Run.VM
+import Text.Cannelle.JinjaAST
+import Text.Cannelle.Html
+import Text.Cannelle.GVal
+import Text.Cannelle.Run.Type
+import Text.Cannelle.Run.FuncUtils
+import Text.Cannelle.Run.VM
 
 
 tshow :: Show a => a -> Text
@@ -122,7 +122,7 @@ gfnEscape :: Monad m => Function m
 gfnEscape = return . toGVal . html . mconcat . fmap (asText . snd)
 
 -- Check if all arguments are HTML-\"escaped\" (sic!) NOTE that this doesn't
--- really make much sense considering the way Ginger works - every GVal is, by
+-- really make much sense considering the way the Ginger parser works - every GVal is, by
 -- construction, both escaped in its 'asGVal' representation and not escaped in
 -- its 'asText' representation, at the same time.
 -- So what we check instead is whether the current 'asHtml'representation of

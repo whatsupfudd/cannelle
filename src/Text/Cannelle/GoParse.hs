@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use guards" #-}
 
-module Text.Ginger.GoParse where
+module Text.Cannelle.GoParse where
 
 import Control.Monad (void, foldM)
 import Control.Applicative (empty, (<|>))
@@ -22,7 +22,7 @@ import qualified Text.Megaparsec.Byte as M
 import qualified Text.Megaparsec.Byte.Lexer as L
 import qualified Text.Megaparsec.Debug as MD
 
-import Text.Ginger.GoAST
+import Text.Cannelle.GoAST
 
 
 type Parser = M.Parsec Void BS.ByteString
@@ -114,7 +114,7 @@ convertElements tElements=
         Right (nStmt, nStack) ->
           case nStack of
             [] -> Right (accum <> [nStmt], [])
-            h : rest -> Right (accum, h { children = h.children <> [nStmt] } : rest)
+            h : rest -> Right (accum, h { children = nStmt : h.children } : rest)
 
 
 pushSimpleAction :: ([Statement], [NodeGast]) -> Action -> Statement -> Either String ([Statement], [NodeGast])

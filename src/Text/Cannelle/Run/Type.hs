@@ -8,10 +8,10 @@
 
 -- | The internals of the 'Run' monad, and various things needed to make the
 -- magic happen. You will not normally need to import this module;
--- 'Text.Ginger.Run' re-exports the things you probably want. However, if you
+-- 'Text.Cannelle.Run' re-exports the things you probably want. However, if you
 -- want to provide your own run monad that extends 'Run' somehow, this module
 -- may be of use.
-module Text.Ginger.Run.Type
+module Text.Cannelle.Run.Type
 ( GingerContext (..)
 , makeContext
 , makeContextM
@@ -103,10 +103,10 @@ import Data.Maybe (isNothing)
 import Data.Monoid (Monoid (..), (<>))
 import Data.List (lookup, zipWith, unzip)
 
-import Text.Ginger.JinjaAST
-import Text.Ginger.Html
-import Text.Ginger.GVal
-import Text.Ginger.JinjaParse (ParserError (..), sourceLine, sourceColumn, sourceName)
+import Text.Cannelle.JinjaAST
+import Text.Cannelle.Html
+import Text.Cannelle.GVal
+import Text.Cannelle.JinjaParse (ParserError (..), sourceLine, sourceColumn, sourceName)
 
 -- | Execution context. Determines how to look up variables from the
 -- environment, and how to write out template output.
@@ -234,7 +234,7 @@ liftLookup f k = do
 -- The type of the lookup function may look intimidating, but in most cases,
 -- marshalling values from Haskell to Ginger is a matter of calling 'toGVal'
 -- on them, so the 'GVal (Run (Writer Html))' part can usually be ignored.
--- See the 'Text.Ginger.GVal' module for details.
+-- See the 'Text.Cannelle.GVal' module for details.
 makeContext' :: Monoid h
             => (VarName -> GVal (Run p (Writer h) h))
             -> (GVal (Run p (Writer h) h) -> h)

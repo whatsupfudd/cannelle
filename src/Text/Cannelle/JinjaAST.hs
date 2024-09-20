@@ -1,11 +1,11 @@
 {-#LANGUAGE DeriveFunctor #-}
--- | Implements Ginger's Abstract Syntax Tree.
-module Text.Ginger.JinjaAST
+-- | Implements Jinja's Abstract Syntax Tree.
+module Text.Cannelle.JinjaAST
 where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Text.Ginger.Html
+import Text.Cannelle.Html
 import Data.Scientific (Scientific)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -34,7 +34,7 @@ data Block a = Block {
   } -- TODO: scoped blocks
   deriving (Show, Functor)
 
--- | Ginger statements.
+-- | Jinja statements.
 data Statement a
     = MultiS a [Statement a] -- ^ A sequence of multiple statements
     | ScopedS a (Statement a) -- ^ Run wrapped statement in a local scope
