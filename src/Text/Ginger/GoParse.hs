@@ -38,7 +38,7 @@ showStatements stmts = do
     [] -> putStrLn ""
     (h : rest) -> do
       putStrLn $ "\t" <> show h
-      mapM_ (\s -> putStrLn $ "\t, " <> showAStmt 1 s) stmts
+      mapM_ (\s -> putStrLn $ "\t, " <> showAStmt 1 s) rest
   putStrLn "]"
 
 showAStmt :: Int -> Statement -> String
@@ -76,7 +76,7 @@ convertElements tElements=
       case tEle of
         Verbatim text -> case stack of
           [] -> Right (accum <> [ VerbatimST text ], stack)
-          h : rest -> Right (accum, h { children = NodeGast (VerbatimS text) [] []: h.children } : rest)
+          h : rest -> Right (accum, h { children = VerbatimST text : h.children } : rest)
         SourceCode text -> Left $ "@[consolidateElements] source-code still present in template elements, it should have been parsed: " <> show text
         ParsedCode action -> handleAction (accum, stack) action
       ) ([], []) tElements
@@ -92,16 +92,16 @@ convertElements tElements=
   handleAction state action@(TemplateIncludeS name expr) = pushSimpleAction state action (IncludeST name expr)
   handleAction state action@(PartialS name expr) = pushSimpleAction state action (PartialST name expr)
   handleAction state action@(ReturnS expr) = pushSimpleAction state action (ReturnST expr)
-  handleAction (accum, stack) action@(IfS expr) = Right (accum, NodeGast action [] [] : stack)
-  handleAction (accum, stack) action@(RangeS maybeRangeVars expr) = Right (accum, NodeGast action [] [] : stack)
-  handleAction (accum, stack) action@(WithS expr) = Right (accum, NodeGast action [] [] : stack)
-  handleAction (accum, stack) action@(DefineS name) = Right (accum, NodeGast action [] [] : stack)
-  handleAction (accum, stack) action@(BlockS name expr) = Right (accum, NodeGast action [] [] : stack)
+  handleAction (accum, stack) action@(IfS expr) = Right (accum, NodeGast action [] : stack)
+  handleAction (accum, stack) action@(RangeS maybeRangeVars expr) = Right (accum, NodeGast action [] : stack)
+  handleAction (accum, stack) action@(WithS expr) = Right (accum, NodeGast action [] : stack)
+  handleAction (accum, stack) action@(DefineS name) = Right (accum, NodeGast action [] : stack)
+  handleAction (accum, stack) action@(BlockS name expr) = Right (accum, NodeGast action [] : stack)
   handleAction (accum, stack) action@(ElseIfS elseBranch) =
     if null stack then
       Left $ "@[handleAction] empty stack on ElseIfS!"
     else
-      Right (accum, NodeGast action [] [] : stack)
+      Right (accum, NodeGast action [] : stack)
   handleAction (accum, stack) EndS =
     if null stack then
       Left $ "@[handleAction] empty stack on EndS!"
@@ -114,7 +114,7 @@ convertElements tElements=
         Right (nStmt, nStack) ->
           case nStack of
             [] -> Right (accum <> [nStmt], [])
-            h : rest -> Right (accum, h { subStmts = h.subStmts <> [nStmt] } : rest)
+            h : rest -> Right (accum, h { children = h.children <> [nStmt] } : rest)
 
 
 pushSimpleAction :: ([Statement], [NodeGast]) -> Action -> Statement -> Either String ([Statement], [NodeGast])
@@ -129,9 +129,9 @@ pushSimpleAction (accum, stack) action potentialStmt =
   else
     let
       (h:rest) = stack
-      newH = h { children = NodeGast action [] []: h.children }
     in
-    Right (accum, newH : rest)
+    simpleActionToStatement action >>= \stmt ->
+      Right (accum, h { children = stmt : h.children } : rest)
 
 
 
@@ -150,19 +150,16 @@ unstackNodes [] = Left "@[unstackNodes] trying to unstack an empty NodeGast stac
 unstackNodes (topNode : rest) =
   if isSimpleUnstack topNode.action then
     let
-      eiStmt = consolidateChildren topNode.children
-    in
-    case eiStmt of
-      Left errMsg -> Left errMsg
-      Right childrenStmt ->
-        let
-          combinedStmts = joinStatements childrenStmt topNode.subStmts
-          newStmt = case topNode.action of
-            RangeS rangeVars expr -> RangeST rangeVars expr combinedStmts NoOpST
-            WithS expr -> WithST expr combinedStmts NoOpST
-            DefineS name -> DefineST name combinedStmts
-            BlockS name expr -> BlockST name expr combinedStmts
-            IfS expr -> IfST expr combinedStmts NoOpST
+      combinedStmts = case topNode.children of
+        [] -> NoOpST
+        [ h ] -> h
+        aList -> ListST (reverse topNode.children)
+      newStmt = case topNode.action of
+        RangeS rangeVars expr -> RangeST rangeVars expr combinedStmts NoOpST
+        WithS expr -> WithST expr combinedStmts NoOpST
+        DefineS name -> DefineST name combinedStmts
+        BlockS name expr -> BlockST name expr combinedStmts
+        IfS expr -> IfST expr combinedStmts NoOpST
         in
         Right (newStmt, rest)
   else
@@ -192,19 +189,19 @@ matchSimpleElse action
   | otherwise = False
 
 -- ^ takes care of unrolling the stack for an else-if node; receives details, children and stack.
-handleElseIf :: ElseBranch -> [NodeGast] -> [NodeGast] -> Either String (Statement, [NodeGast])
+handleElseIf :: ElseBranch -> [Statement] -> [NodeGast] -> Either String (Statement, [NodeGast])
 handleElseIf _ _ [] = Left "@[unstackNodes] unexpected empty stack on ElseIfS handling!"
 handleElseIf ElseB children (prevNode : rest) =
   if matchSimpleElse prevNode.action then
     let
-      eiElseB = consolidateChildren children
-      eiPrevB = consolidateChildren prevNode.children
-      (builder, builderName) = case prevNode.action of
-        RangeS mbVarDef expr -> (RangeST mbVarDef expr, "range")
-        WithS expr -> (WithST expr, "with")
-        IfS expr -> (IfST expr, "if")
+      elseB = stmtListToStatement children
+      prevB = stmtListToStatement prevNode.children
+      builder = case prevNode.action of
+        RangeS mbVarDef expr -> RangeST mbVarDef expr
+        WithS expr -> WithST expr
+        IfS expr -> IfST expr
     in
-    (,) <$> fuseTwoNodes builder builderName (eiElseB, eiPrevB) <*> Right rest
+    Right $ (builder prevB elseB, rest)
   else case prevNode.action of
     ElseIfS details -> Left "@[unstackNodes] unimplemented ElseIfS unrolling!"
     _ -> Left $ "@[unstackNodes] previous node in stack isn't compatible with a else node: " <> show prevNode
@@ -212,29 +209,17 @@ handleElseIf ElseB children (prevNode : rest) =
 handleElseIf (ElsePlusB kind expr) children (prevNode : rest) =
   Left "@[unstackNodes] unimplemented ElsePlusB unrolling!"
 
-
-fuseTwoNodes :: (Statement -> Statement -> Statement) -> String -> (Either String Statement, Either String Statement) -> Either String Statement
-fuseTwoNodes builder builderName twoChildren =
-  case twoChildren of
-    (Right elseB, Right prevB) ->
-      if elseB == NoOpST && prevB == NoOpST then
-        Right NoOpST
-      else
-        Right $ builder prevB elseB
-    (Left errMsgA, Left errMsgB) ->
-      Left $ "@[unstackNodes] error consolidating children for " <> builderName <> "-else branches: " <> errMsgA <> ", " <> errMsgB <> "."
-    (Left errMsg, _) ->
-      Left $ "@[unstackNodes] error consolidating children for else branch of " <> builderName <> ": " <> errMsg
-    (_, Left errMsg) ->
-      Left $ "@[unstackNodes] error consolidating children for " <> builderName <> " branch (continued with an else): " <> errMsg
+stmtListToStatement :: [Statement] -> Statement
+stmtListToStatement stmts =
+  case stmts of
+    [] -> NoOpST
+    [h] -> h
+    h : rest -> ListST stmts
 
 
-consolidateChildren :: [NodeGast] -> Either String Statement
-consolidateChildren children =
-  case children of
-    [] -> Right NoOpST
-    [h] -> simpleActionToStatement h.action
-    l -> ListST <$> mapM (\node -> simpleActionToStatement node.action) (reverse l)
+fuseTwoNodes :: (Statement -> Statement -> Statement) -> String -> (Statement, Statement) -> Either String Statement
+fuseTwoNodes builder builderName (prevB, elseB) =
+  Right $ builder prevB elseB
 
 
 simpleActionToStatement :: Action -> Either String Statement

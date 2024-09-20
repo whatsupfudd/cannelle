@@ -28,8 +28,7 @@ data Statement =
 
 data NodeGast = NodeGast {
       action :: Action
-    , children :: [NodeGast] 
-    , subStmts :: [Statement]
+    , children :: [Statement]
   }
   deriving (Show, Eq)
 
