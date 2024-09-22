@@ -24,10 +24,10 @@ source-repository head
 
 library
   exposed-modules:
-      Text.Cannelle.GoAST
-      Text.Cannelle.GoParse
       Text.Cannelle.GVal
       Text.Cannelle.Html
+      Text.Cannelle.Hugo.AST
+      Text.Cannelle.Hugo.Parse
       Text.Cannelle.JinjaAST
       Text.Cannelle.JinjaParse
       Text.Cannelle.Optimizer

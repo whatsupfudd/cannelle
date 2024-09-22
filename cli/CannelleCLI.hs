@@ -30,7 +30,7 @@ import System.Exit
 
 import Text.Ginger
 import Text.Cannelle.Html
-import Text.Cannelle.GoParse (parseTemplateSource, convertElements, showStatements)
+import Text.Cannelle.Hugo.Parse (parseTemplateSource, convertElements, showStatements)
 
 import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..))
 

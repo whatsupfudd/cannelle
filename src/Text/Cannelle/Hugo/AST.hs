@@ -1,11 +1,13 @@
 -- | Implements Hugo's Abstract Syntax Tree (based on golang/templates).
-module Text.Cannelle.GoAST
+module Text.Cannelle.Hugo.AST
 where
 
 import qualified Data.ByteString as BS
 import Data.Text (Text)
 import Data.Scientific (Scientific)
 
+
+-- TODO: carry the line number into the statements so they can show up in error messages.
 
 data Statement =
   VerbatimST BS.ByteString
@@ -58,7 +60,7 @@ data Action
     | PartialS BS.ByteString Expression                 -- ^ Include a partial template
     | ReturnS Expression                              -- ^ Return a value
     | EndS                                          -- Ends an action block.
-    | ContinueS     
+    | ContinueS
     | BreakS
     | VerbatimS BS.ByteString
     deriving (Show, Eq)

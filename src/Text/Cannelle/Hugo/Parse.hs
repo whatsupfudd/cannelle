@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use guards" #-}
 
-module Text.Cannelle.GoParse where
+module Text.Cannelle.Hugo.Parse where
 
 import Control.Monad (void, foldM)
 import Control.Applicative (empty, (<|>))
@@ -22,22 +22,24 @@ import qualified Text.Megaparsec.Byte as M
 import qualified Text.Megaparsec.Byte.Lexer as L
 import qualified Text.Megaparsec.Debug as MD
 
-import Text.Cannelle.GoAST
+import Text.Cannelle.Hugo.AST
 
 
 type Parser = M.Parsec Void BS.ByteString
 
 
 oDbg str p =
-  if True then MD.dbg str p else p
+  if False then MD.dbg str p else p
 
+
+-- *** The TemplateElement to Statement conversion part: ***
 showStatements :: [Statement] -> IO ()
 showStatements stmts = do
   putStrLn "Statements: ["
   case stmts of
     [] -> putStrLn ""
     (h : rest) -> do
-      putStrLn $ "\t" <> show h
+      putStrLn $ "\t" <> showAStmt 1 h
       mapM_ (\s -> putStrLn $ "\t, " <> showAStmt 1 s) rest
   putStrLn "]"
 
@@ -65,6 +67,13 @@ showAStmt level stmt =
     RangeST rangeVars expr loopStmt elseStmt ->
       "RangeST rangeVars: " <> show rangeVars <> ", expr: " <> show expr
       <> "\n" <> ident <> ", loop: " <> showAStmt nLevel loopStmt
+      <> "\n" <> ident <> ", else: " <> showAStmt nLevel elseStmt
+    DefineST name bodyStmt ->
+      "DefineST: " <> show name
+      <> "\n" <> ident <> ", body: " <> showAStmt nLevel bodyStmt
+    WithST expr bodyStmt elseStmt ->
+      "WithST: " <> show expr
+      <> "\n" <> ident <> ", body: " <> showAStmt nLevel bodyStmt
       <> "\n" <> ident <> ", else: " <> showAStmt nLevel elseStmt
     _ -> show stmt
 
@@ -150,10 +159,7 @@ unstackNodes [] = Left "@[unstackNodes] trying to unstack an empty NodeGast stac
 unstackNodes (topNode : rest) =
   if isSimpleUnstack topNode.action then
     let
-      combinedStmts = case topNode.children of
-        [] -> NoOpST
-        [ h ] -> h
-        aList -> ListST (reverse topNode.children)
+      combinedStmts = combineChildren topNode.children
       newStmt = case topNode.action of
         RangeS rangeVars expr -> RangeST rangeVars expr combinedStmts NoOpST
         WithS expr -> WithST expr combinedStmts NoOpST
@@ -169,16 +175,12 @@ unstackNodes (topNode : rest) =
       _ -> Left $ "@[unstackNodes] unexpected node for unstacking: " <> show topNode
 
 
-joinStatements :: Statement -> [Statement] -> Statement
-joinStatements stmt aList =
-  case stmt of
-    NoOpST ->
-      case aList of
-        [] -> NoOpST
-        [ h ] -> h
-        h : rest -> ListST aList
-    ListST l1 -> ListST (l1 <> aList)
-    _ -> ListST (stmt : aList)
+combineChildren :: [Statement] -> Statement
+combineChildren stmts =
+  case stmts of
+    [] -> NoOpST
+    [h] -> h
+    h : rest -> ListST (reverse stmts)
 
 
 matchSimpleElse :: Action -> Bool
@@ -194,20 +196,96 @@ handleElseIf _ _ [] = Left "@[unstackNodes] unexpected empty stack on ElseIfS ha
 handleElseIf ElseB children (prevNode : rest) =
   if matchSimpleElse prevNode.action then
     let
-      elseB = stmtListToStatement children
-      prevB = stmtListToStatement prevNode.children
+      elseB = combineChildren children
+      thenB = combineChildren prevNode.children
       builder = case prevNode.action of
         RangeS mbVarDef expr -> RangeST mbVarDef expr
         WithS expr -> WithST expr
         IfS expr -> IfST expr
     in
-    Right $ (builder prevB elseB, rest)
+    Right $ (builder thenB elseB, rest)
   else case prevNode.action of
-    ElseIfS details -> Left "@[unstackNodes] unimplemented ElseIfS unrolling!"
+    ElseIfS (ElsePlusB _ _) ->
+      handleElseContChain prevNode (combineChildren children) rest
     _ -> Left $ "@[unstackNodes] previous node in stack isn't compatible with a else node: " <> show prevNode
 
 handleElseIf (ElsePlusB kind expr) children (prevNode : rest) =
-  Left "@[unstackNodes] unimplemented ElsePlusB unrolling!"
+  let
+    elseB = mkContStmt kind expr (combineChildren children) NoOpST
+  in
+  case prevNode.action of
+    IfS topExpr -> Right (IfST topExpr (combineChildren prevNode.children) elseB, rest)
+    WithS topExpr -> Right (WithST topExpr (combineChildren prevNode.children) elseB, rest)
+    ElseIfS _ ->
+      handleElseContChain prevNode elseB rest
+
+
+handleElseContChain :: NodeGast -> Statement -> [NodeGast] -> Either String (Statement, [NodeGast])
+handleElseContChain _ _ [] = Left "@[handleElseContChain] unexpected empty stack unrolling."
+handleElseContChain thenNode elseStmt (hStack : tStack) =
+  case hStack.action of
+    IfS expr -> if isIfKind thenNode then
+        let
+          ElseIfS (ElsePlusB IfK newElseExpr) = thenNode.action
+          newElseStmt = IfST newElseExpr (combineChildren thenNode.children) elseStmt
+        in
+        Right (IfST expr (combineChildren hStack.children) newElseStmt, tStack)
+      else
+        Left $ "@[handleElseContChain] alternative continuation mismatch: " <> show hStack <> " vs. " <> show thenNode
+    WithS expr -> if isWithKind thenNode then
+        let
+          ElseIfS (ElsePlusB WithK newElseExpr) = thenNode.action
+          newElseStmt = WithST newElseExpr (combineChildren thenNode.children) elseStmt
+        in
+        Right (WithST expr (combineChildren hStack.children) newElseStmt, tStack)
+      else
+        Left $ "@[handleElseContChain] alternative continuation mismatch: " <> show hStack <> " vs. " <> show thenNode
+    ElseIfS (ElsePlusB kind _) -> if matchElseContKind thenNode kind then
+        let
+          ElseIfS (ElsePlusB kind' expr) = thenNode.action
+          newElseStmt = mkContStmt kind' expr (combineChildren thenNode.children) elseStmt
+        in
+        handleElseContChain hStack newElseStmt tStack
+      else
+        Left $ "@[handleElseContChain] alternative continuation mismatch: " <> show hStack <> " vs. " <> show thenNode
+    _ -> Left $ "@[handleElseContChain] unimplemented case: " <> show hStack
+
+
+mkContStmt kind expr thenStmt elseStmt =
+  case kind of
+    IfK -> IfST expr thenStmt elseStmt
+    WithK -> WithST expr thenStmt elseStmt
+
+
+matchElseContKind :: NodeGast -> PlusKind -> Bool
+matchElseContKind node kind =
+  case node.action of
+    ElseIfS (ElsePlusB kind' _) -> kind == kind'
+    _ -> False
+
+isIfKind :: NodeGast -> Bool
+isIfKind node =
+  case node.action of
+    IfS _ -> True
+    ElseIfS (ElsePlusB IfK _) -> True
+    _ -> False
+
+
+isWithKind :: NodeGast -> Bool
+isWithKind node =
+  case node.action of
+    WithS _ -> True
+    ElseIfS (ElsePlusB WithK _) -> True
+    _ -> False
+
+
+mkElseIfTree :: [ (Maybe Expression, [Statement]) ] -> Statement
+mkElseIfTree [] = NoOpST
+mkElseIfTree (hBlocks : tBlocks) =
+  case hBlocks of
+    (Nothing, cStmts) -> combineChildren cStmts
+    (Just expr, cStmts) -> IfST expr (combineChildren cStmts) (mkElseIfTree tBlocks)
+
 
 stmtListToStatement :: [Statement] -> Statement
 stmtListToStatement stmts =
@@ -236,6 +314,7 @@ simpleActionToStatement action =
     _ -> Left $ "@[simpleActionToStatement] illegal action: " <> show action
 
 
+-- *** The parser part: ***
 parseTemplateSource :: Maybe String ->BS.ByteString -> IO (Either String [TemplateElement])
 parseTemplateSource mbFileName input =
   let
@@ -264,7 +343,7 @@ parseTemplateSource mbFileName input =
             Left err -> do
               pure . Left $ M.errorBundlePretty err
             Right results -> do
-              putStrLn $ "Parsed Actions: " <> show results
+              -- putStrLn $ "Parsed Actions: " <> show results
               pure . Right $ results
 
 
