@@ -33,6 +33,15 @@ dependencies:
   - vector >=0.12.0.2 && <0.14
   # Newer stuff
   - megaparsec
+  - cryptohash-md5
+  - parser-combinators
+  # For parsing programming languages:
+  - tree-sitter
+  - tree-sitter-haskell
+  - tree-sitter-php
+  # For PHP:
+  - deepseq
+
 
 default-extensions:
 - OverloadedStrings

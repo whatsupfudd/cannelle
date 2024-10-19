@@ -6,7 +6,7 @@
 {-#LANGUAGE GeneralizedNewtypeDeriving #-}
 {-#LANGUAGE OverloadedStrings #-}
 {-#LANGUAGE FlexibleInstances #-}
-module Text.Cannelle.Html
+module Cannelle.Jinja.Html
 ( Html
 , unsafeRawHtml
 , html

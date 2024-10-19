@@ -21,6 +21,8 @@ data Options = RunOptions TemplateSource DataSource TechMode
 data TechMode =
   Jinja
   | Hugo
+  | PHP
+  | Fuddle
 
 
 parseOptions :: [String] -> IO Options
@@ -92,4 +94,14 @@ techMode =
        long "hugo"
     <> short 'g'
     <> help "Use the Hugo template engine"
+  )
+  <|> flag' PHP (
+       long "php"
+    <> short 'p'
+    <> help "Use the PHP template engine"
+  )
+  <|> flag' Fuddle (
+       long "fuddle"
+    <> short 'f'
+    <> help "Use the Fuddle template engine"
   )

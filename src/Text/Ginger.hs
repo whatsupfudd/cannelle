@@ -186,7 +186,7 @@ module Text.Ginger
 
 -- | > {{ append(x, "foobar") }}
 
--- | A list of available filters can be found in the 'Text.Cannelle.Run' module.
+-- | A list of available filters can be found in the 'Cannelle.Jinja.Run' module.
 
 -- | /Deviation from Jinja2:/ there is no distinguishing between filters and
 -- functions at the semantics level; any function can be called as a filter,
@@ -260,7 +260,7 @@ module Text.Ginger
 -- | If you don't need a monadic context for resolving includes (e.g. because you
 -- have pre-loaded all template sources), you can use the pure 'parseGinger'
 -- flavor, which does not rely on a host monad.
-  module Text.Cannelle.JinjaParse
+module Text.Ginger
 
 -- ** Running
 -- | The core function for running a template is 'runGinger' (or its monadic
@@ -273,24 +273,24 @@ module Text.Ginger
 
 -- | > runGingerT (makeContextM scopeLookup (putStr . Text.unpack . htmlSource)) tpl
 
-, module Text.Cannelle.Run
+, module Cannelle.Jinja.Run
 
 -- ** Other concerns
 -- *** GVal: Ginger's unitype value
-, module Text.Cannelle.GVal
+, module Cannelle.Jinja.GVal
 
 -- *** AST
 -- | The data structures used to represent templates, statements and
 -- expressions internally.
-, module Text.Cannelle.JinjaAST
+, module Cannelle.Jinja.AST
 
 -- *** Optimizer
 -- | An optimizing AST rewriter
-, module Text.Cannelle.Optimizer
+, module Cannelle.Jinja.Optimizer
 )
 where
-import Text.Cannelle.JinjaParse
-import Text.Cannelle.Optimizer
-import Text.Cannelle.JinjaAST
-import Text.Cannelle.Run
-import Text.Cannelle.GVal
+import Cannelle.Jinja.Parse
+import Cannelle.Jinja.Optimizer
+import Cannelle.Jinja.AST
+import Cannelle.Jinja.Run
+import Cannelle.Jinja.GVal

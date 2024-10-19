@@ -19,7 +19,7 @@
 -- >                _ -> def -- def for GVal is equivalent to a NULL value
 -- >        context = makeContextHtml contextLookup
 -- >    in htmlSource $ runGinger context template
-module Text.Cannelle.Run
+module Cannelle.Jinja.Run
 (
 -- * The \"easy\" interface
 -- | Provides a straightforward way of rendering templates monadically
@@ -87,7 +87,7 @@ import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.List as List
 import Text.Printf
 import Text.PrintfA
-import Text.Cannelle.JinjaParse (parseGinger, ParserError)
+import Cannelle.Jinja.Parse (parseGinger, ParserError)
 import Control.Monad.Trans.Except (runExceptT, catchE)
 
 import Data.Text (Text)
@@ -114,13 +114,13 @@ import Data.List (lookup, zipWith, unzip)
 import Data.Monoid (Monoid (..), (<>))
 import Data.Aeson as JSON
 
-import Text.Cannelle.JinjaAST
-import Text.Cannelle.Html
-import Text.Cannelle.GVal
-import Text.Cannelle.Run.Type
-import Text.Cannelle.Run.Builtins
-import Text.Cannelle.Run.FuncUtils
-import Text.Cannelle.Run.VM
+import Cannelle.Jinja.AST
+import Cannelle.Jinja.Html
+import Cannelle.Jinja.GVal
+import Cannelle.Jinja.Run.Type
+import Cannelle.Jinja.Run.Builtins
+import Cannelle.Jinja.Run.FuncUtils
+import Cannelle.Jinja.Run.VM
 
 
 defaultScope :: forall m h p

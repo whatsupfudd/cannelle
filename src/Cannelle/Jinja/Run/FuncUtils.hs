@@ -5,7 +5,7 @@
 {-#LANGUAGE TypeSynonymInstances #-}
 {-#LANGUAGE MultiParamTypeClasses #-}
 {-#LANGUAGE ScopedTypeVariables #-}
-module Text.Cannelle.Run.FuncUtils
+module Cannelle.Jinja.Run.FuncUtils
 where
 
 import Prelude ( (.), ($), (==), (/=)
@@ -56,10 +56,10 @@ import Debug.Trace (trace)
 import Data.Maybe (isNothing)
 import Data.List (lookup, zipWith, unzip)
 
-import Text.Cannelle.JinjaAST
-import Text.Cannelle.Html
-import Text.Cannelle.GVal
-import Text.Cannelle.Run.Type
+import Cannelle.Jinja.AST
+import Cannelle.Jinja.Html
+import Cannelle.Jinja.GVal
+import Cannelle.Jinja.Run.Type
 
 
 unaryFunc :: forall m h p. (Monad m) => (GVal (Run p m h) -> GVal (Run p m h)) -> Function (Run p m h)

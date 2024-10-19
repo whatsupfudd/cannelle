@@ -13,7 +13,7 @@
 -- will not normally need to import this module, unless you want to provide
 -- your own context with things that reuse functionality from the default
 -- ones.
-module Text.Cannelle.Run.Builtins
+module Cannelle.Jinja.Run.Builtins
 where
 
 import Prelude ( (.), ($), (==), (/=)
@@ -86,12 +86,12 @@ import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Encode.Pretty as JSON
 import qualified Text.Regex.TDFA as RE
 
-import Text.Cannelle.JinjaAST
-import Text.Cannelle.Html
-import Text.Cannelle.GVal
-import Text.Cannelle.Run.Type
-import Text.Cannelle.Run.FuncUtils
-import Text.Cannelle.Run.VM
+import Cannelle.Jinja.AST
+import Cannelle.Jinja.Html
+import Cannelle.Jinja.GVal
+import Cannelle.Jinja.Run.Type
+import Cannelle.Jinja.Run.FuncUtils
+import Cannelle.Jinja.Run.VM
 
 
 tshow :: Show a => a -> Text
@@ -466,7 +466,7 @@ gfnReverse args = do
         Right [reversee] -> return reversee
         _ -> throwHere $ ArgumentsError (Just "reverse") "expected: (reversee)"
     return . toGVal $ List.reverse <$> asList reversee
-    
+
 
 gfnSort :: forall p m h. Monad m => Function (Run p m h)
 gfnSort args = do

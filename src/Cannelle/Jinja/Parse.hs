@@ -5,7 +5,7 @@
 {-#LANGUAGE FlexibleInstances #-}
 {-#LANGUAGE MultiParamTypeClasses #-}
 -- | Jinja parser.
-module Text.Cannelle.JinjaParse
+module Cannelle.Jinja.Parse
 ( parseGinger
 , parseGingerFile
 , parseGinger'
@@ -75,9 +75,9 @@ import Data.Char (isSpace)
 import System.FilePath ( takeDirectory, (</>) )
 import Text.Printf ( printf )
 
-import Text.Cannelle.JinjaAST
-import Text.Cannelle.Html ( unsafeRawHtml )
-import Text.Cannelle.GVal (GVal, ToGVal (..), dict, (~>))
+import Cannelle.Jinja.AST
+import Cannelle.Jinja.Html ( unsafeRawHtml )
+import Cannelle.Jinja.GVal (GVal, ToGVal (..), dict, (~>))
 
 -- | Input type for the parser (source code).
 type Source = String

@@ -29,8 +29,11 @@ import Text.Printf (printf)
 import System.Exit
 
 import Text.Ginger
-import Text.Cannelle.Html
-import Text.Cannelle.Hugo.Parse (parseTemplateSource, convertElements, showStatements)
+import Cannelle.Jinja.Html
+import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourceLine, sourceColumn, parseGingerFile, parseGinger, formatParserError)
+import qualified Cannelle.Hugo.Parse as Hg
+import qualified Cannelle.Fuddle.Parser as Fd
+import qualified Cannelle.PHP.Parse as Ph
 
 import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..))
 
@@ -43,11 +46,15 @@ main = do
         case tech of
           Jinja -> runJinja tpl dat
           Hugo -> runHugo tpl dat
+          PHP -> runPHP tpl dat
+          Fuddle -> runFuddle tpl dat
+
 
 loadData :: DataSource -> IO (Either YAML.ParseException (HashMap Text JSON.Value))
 loadData (DataFromFile fn) = decodeFile fn
 loadData DataFromStdin = decodeStdin
 loadData (DataLiteral str) = decodeString str
+
 
 loadTemplate :: TemplateSource -> IO (Template SourcePos)
 loadTemplate tplSrc = do
@@ -99,6 +106,7 @@ runJinja tplSrc dataSrc = do
             | isNull value = return ()
             | otherwise = putStrLn . show $ value
 
+
 runHugo :: TemplateSource -> DataSource -> IO ()
 runHugo tplSrc dataSrc = do
   rezA <- case tplSrc of
@@ -106,29 +114,50 @@ runHugo tplSrc dataSrc = do
       src <- loadFileMay fn
       case src of
         Just string -> do
-          rezB <- parseTemplateSource (Just fn) (T.encodeUtf8 . Text.pack $ string)
+          rezB <- Hg.parseTemplateSource (Just fn) (T.encodeUtf8 . Text.pack $ string)
           case rezB of
             Left errMsg ->
               pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
             Right templateElements ->
-              pure $ convertElements templateElements
+              pure $ Hg.convertElements templateElements
         Nothing ->
           pure . Left $ "@[runHugo] Could not read file " <> fn
     TemplateFromStdin -> do
       text <- T.encodeUtf8 . Text.pack <$> getContents
-      rezB <- parseTemplateSource Nothing text
+      rezB <- Hg.parseTemplateSource Nothing text
       case rezB of
         Left errMsg ->
           pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
         Right templateElements ->
-          pure $ convertElements templateElements
+          pure $ Hg.convertElements templateElements
   case rezA of
     Left errMsg -> putStrLn errMsg
-    Right statements -> showStatements statements
+    Right statements -> Hg.showStatements statements
+
+
+runPHP :: TemplateSource -> DataSource -> IO ()
+runPHP tplSrc dataSrc = do
+  rezA <- case tplSrc of
+    TemplateFromFile fn -> do
+      rezB <- Ph.tsParsePhp fn
+      pure $ Right ()
+    TemplateFromStdin ->
+      pure . Left $ "@[runPHP] TemplateFromStdin not supported yet."
+  pure ()
+
+runFuddle :: TemplateSource -> DataSource -> IO ()
+runFuddle tplSrc dataSrc = do
+  rezA <- case tplSrc of
+    TemplateFromFile fn ->
+      pure . Left $ "@[runFuddle] TemplateFromFile not supported yet."
+    TemplateFromStdin ->
+      pure . Left $ "@[runFuddle] TemplateFromStdin not supported yet."
+  pure ()
 
 
 printParserError :: Maybe String -> ParserError -> IO ()
 printParserError srcMay = putStrLn . formatParserError srcMay
+
 
 displayParserError :: String -> ParserError -> IO ()
 displayParserError src pe = do

@@ -24,18 +24,47 @@ source-repository head
 
 library
   exposed-modules:
-      Text.Cannelle.GVal
-      Text.Cannelle.Html
-      Text.Cannelle.Hugo.AST
-      Text.Cannelle.Hugo.Parse
-      Text.Cannelle.JinjaAST
-      Text.Cannelle.JinjaParse
-      Text.Cannelle.Optimizer
-      Text.Cannelle.Run
-      Text.Cannelle.Run.Builtins
-      Text.Cannelle.Run.FuncUtils
-      Text.Cannelle.Run.Type
-      Text.Cannelle.Run.VM
+      Cannelle.Common.Error
+      Cannelle.Fuddle.Ast
+      Cannelle.Fuddle.Compiler
+      Cannelle.Fuddle.Parser
+      Cannelle.Hugo.Assembler
+      Cannelle.Hugo.AST
+      Cannelle.Hugo.Common
+      Cannelle.Hugo.Compiler
+      Cannelle.Hugo.Defines
+      Cannelle.Hugo.Parse
+      Cannelle.Hugo.Types
+      Cannelle.Jinja.AST
+      Cannelle.Jinja.GVal
+      Cannelle.Jinja.Html
+      Cannelle.Jinja.Optimizer
+      Cannelle.Jinja.Parse
+      Cannelle.Jinja.Run
+      Cannelle.Jinja.Run.Builtins
+      Cannelle.Jinja.Run.FuncUtils
+      Cannelle.Jinja.Run.Type
+      Cannelle.Jinja.Run.VM
+      Cannelle.PHP.AST
+      Cannelle.PHP.Class
+      Cannelle.PHP.Debug
+      Cannelle.PHP.Error
+      Cannelle.PHP.Interface
+      Cannelle.PHP.NeParser
+      Cannelle.PHP.Parse
+      Cannelle.PHP.Parser.Expressions
+      Cannelle.PHP.Parser.Statements
+      Cannelle.PHP.Parser.Support
+      Cannelle.PHP.Parser.Types
+      Cannelle.PHP.Print
+      Cannelle.PHP.Scanner
+      Cannelle.PHP.State
+      Cannelle.PHP.Types
+      Cannelle.Template.Types
+      Cannelle.VM.Context
+      Cannelle.VM.Engine
+      Cannelle.VM.Memory
+      Cannelle.VM.OpCodes
       Text.Ginger
       Text.PrintfA
   other-modules:
@@ -52,18 +81,24 @@ library
     , base >=4.8 && <5
     , bytestring >=0.10.8.2 && <0.12
     , containers >=0.6.4 && <0.7
+    , cryptohash-md5
     , data-default >=0.5 && <0.8
+    , deepseq
     , filepath >=1.3 && <1.5
     , http-types >=0.8 && (<0.11 || >=0.12) && <0.13
     , megaparsec
     , mtl >=2.2 && <2.4
     , parsec >=3.0 && <3.2
+    , parser-combinators
     , regex-tdfa >=1.2.3 && <=1.4
     , safe ==0.3.*
     , scientific ==0.3.*
     , text >=1.2.3.1 && <2.1
     , time >=0.1.6.0 && <1.13
     , transformers >=0.3 && <0.7
+    , tree-sitter
+    , tree-sitter-haskell
+    , tree-sitter-php
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
     , vector >=0.12.0.2 && <0.14
@@ -88,13 +123,16 @@ executable cannelle
     , bytestring >=0.10.8.2 && <0.12
     , cannelle
     , containers >=0.6.4 && <0.7
+    , cryptohash-md5
     , data-default >=0.5 && <0.8
+    , deepseq
     , filepath >=1.3 && <1.5
     , http-types >=0.8 && (<0.11 || >=0.12) && <0.13
     , megaparsec
     , mtl >=2.2 && <2.4
     , optparse-applicative >=0.14.3.0 && <0.19
     , parsec >=3.0 && <3.2
+    , parser-combinators
     , process >=1.6.5.0 && <1.7
     , regex-tdfa >=1.2.3 && <=1.4
     , safe ==0.3.*
@@ -102,6 +140,9 @@ executable cannelle
     , text >=1.2.3.1 && <2.1
     , time >=0.1.6.0 && <1.13
     , transformers >=0.3 && <0.7
+    , tree-sitter
+    , tree-sitter-haskell
+    , tree-sitter-php
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
     , vector >=0.12.0.2 && <0.14
@@ -127,18 +168,24 @@ test-suite cannelle-test
     , base >=4.8 && <5
     , bytestring >=0.10.8.2 && <0.12
     , containers >=0.6.4 && <0.7
+    , cryptohash-md5
     , data-default >=0.5 && <0.8
+    , deepseq
     , filepath >=1.3 && <1.5
     , http-types >=0.8 && (<0.11 || >=0.12) && <0.13
     , megaparsec
     , mtl >=2.2 && <2.4
     , parsec >=3.0 && <3.2
+    , parser-combinators
     , regex-tdfa >=1.2.3 && <=1.4
     , safe ==0.3.*
     , scientific ==0.3.*
     , text >=1.2.3.1 && <2.1
     , time >=0.1.6.0 && <1.13
     , transformers >=0.3 && <0.7
+    , tree-sitter
+    , tree-sitter-haskell
+    , tree-sitter-php
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
     , vector >=0.12.0.2 && <0.14

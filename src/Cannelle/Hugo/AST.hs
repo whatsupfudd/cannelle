@@ -1,5 +1,5 @@
 -- | Implements Hugo's Abstract Syntax Tree (based on golang/templates).
-module Text.Cannelle.Hugo.AST
+module Cannelle.Hugo.AST
 where
 
 import qualified Data.ByteString as BS
@@ -7,30 +7,46 @@ import Data.Text (Text)
 import Data.Scientific (Scientific)
 
 
+data TypeInfo =
+  ResolvedTI HugoType
+  | UnknownTI
+  | ExpectsTI TypeInfo
+  deriving (Show, Eq)
+
+data HugoType =
+  BoolHT
+  | IntHT
+  | FloatHT
+  | StringHT
+  | ListHT
+  | DictHT
+  | DynamicHT
+  deriving (Show, Eq)
+
 -- TODO: carry the line number into the statements so they can show up in error messages.
 
-data Statement =
+data RawStatement =
   VerbatimST BS.ByteString
   | ExpressionST Expression
-  | IfST Expression Statement Statement
-  | RangeST (Maybe RangeVars) Expression Statement Statement
-  | WithST Expression Statement Statement
-  | DefineST BS.ByteString Statement
-  | BlockST BS.ByteString Expression Statement
+  | IfST Expression RawStatement RawStatement
+  | RangeST (Maybe RangeVars) Expression RawStatement RawStatement
+  | WithST Expression RawStatement RawStatement
+  | DefineST BS.ByteString RawStatement
+  | BlockST BS.ByteString Expression RawStatement
   | IncludeST BS.ByteString Expression
   | PartialST BS.ByteString Expression
   | ReturnST Expression
   | VarAssignST AsngKind Variable Expression
-  | ListST [Statement]
+  | ListST [RawStatement]
   | NoOpST              -- ^ No operation, used to skip useless nodes without making list aggregation more complex.
   | ContinueST
   | BreakST
   deriving (Show, Eq)
 
 
-data NodeGast = NodeGast {
+data NodeGast errH typeH = NodeGast {
       action :: Action
-    , children :: [Statement]
+    , children :: [RawStatement]
   }
   deriving (Show, Eq)
 
@@ -99,14 +115,14 @@ data VarKind =
 
 
 -- | Expressions within actions
-data Expression
-    = ExprLiteral Literal                       -- ^ A literal value
-    | ExprVariable Variable                     -- ^ A variable (e.g., $var)
+data Expression =
+      ExprLiteral TypeInfo Literal                       -- ^ A literal value
+    | ExprVariable TypeInfo Variable                     -- ^ A variable (e.g., $var)
     | ExprCurrentContext                        -- ^ The current context (.)
     | ExprParentContext                         -- ^ The parent context (..)
-    | ExprMethodAccess [Variable][Expression]         -- ^ Field access (e.g., .Title)
-    | ExprFunctionCall BS.ByteString [Expression]      -- ^ Function call (e.g., printf)
-    | ExprPipeline Expression [FunctionApplication] -- ^ A pipeline of functions
+    | ExprMethodAccess TypeInfo [Variable][Expression]         -- ^ Field access (e.g., .Title)
+    | ExprFunctionCall TypeInfo BS.ByteString [Expression]      -- ^ Function call (e.g., printf)
+    | ExprPipeline TypeInfo Expression [FunctionApplication] -- ^ A pipeline of functions
     deriving (Show, Eq)
 
 -- | Application of a function in a pipeline
@@ -116,6 +132,6 @@ data FunctionApplication = FunctionApplication BS.ByteString [Expression]
 -- | Literal values in expressions
 data Literal
     = LitString BS.ByteString                          -- ^ String literal
-    | LitNumber Double                          -- ^ Numeric literal
+    | LitNumber Bool Double                          -- ^ Numeric literal, True => Float, False => Integer.
     | LitBool Bool                              -- ^ Boolean literal
     deriving (Show, Eq)

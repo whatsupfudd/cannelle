@@ -9,7 +9,11 @@ packages:
 - '.'
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
-extra-deps: []
+extra-deps:
+  - ../haskell-tree-sitter/tree-sitter
+  - ../haskell-tree-sitter/tree-sitter-haskell
+  - ../haskell-tree-sitter/tree-sitter-php
+
 
 # Override default flag values for local packages and extra-deps
 flags: {}

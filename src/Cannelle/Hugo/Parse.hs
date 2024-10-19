@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use guards" #-}
 
-module Text.Cannelle.Hugo.Parse where
+module Cannelle.Hugo.Parse where
 
 import Control.Monad (void, foldM)
 import Control.Applicative (empty, (<|>))
@@ -22,7 +22,13 @@ import qualified Text.Megaparsec.Byte as M
 import qualified Text.Megaparsec.Byte.Lexer as L
 import qualified Text.Megaparsec.Debug as MD
 
-import Text.Cannelle.Hugo.AST
+import Cannelle.Hugo.AST
+
+
+data ParseState = ParseState {
+    newError :: String
+    , newType :: TypeInfo
+  }
 
 
 type Parser = M.Parsec Void BS.ByteString
@@ -33,7 +39,7 @@ oDbg str p =
 
 
 -- *** The TemplateElement to Statement conversion part: ***
-showStatements :: [Statement] -> IO ()
+showStatements :: [RawStatement] -> IO ()
 showStatements stmts = do
   putStrLn "Statements: ["
   case stmts of
@@ -43,7 +49,7 @@ showStatements stmts = do
       mapM_ (\s -> putStrLn $ "\t, " <> showAStmt 1 s) rest
   putStrLn "]"
 
-showAStmt :: Int -> Statement -> String
+showAStmt :: Int -> RawStatement -> String
 showAStmt level stmt =
   let
     nLevel = level + 1
@@ -78,7 +84,7 @@ showAStmt level stmt =
     _ -> show stmt
 
 
-convertElements :: [TemplateElement] -> Either String [Statement]
+convertElements :: [TemplateElement] -> Either String [RawStatement]
 convertElements tElements=
   let
     rez = foldM (\(accum, stack) tEle ->
@@ -95,7 +101,7 @@ convertElements tElements=
     Right (statements, _) -> Right statements
   where
   -- TODO: figure out the merging of all statements.
-  handleAction :: ([Statement], [NodeGast]) -> Action -> Either String ([Statement], [NodeGast])
+  handleAction :: ([RawStatement], [NodeGast errH typeH]) -> Action -> Either String ([RawStatement], [NodeGast errH typeH])
   handleAction state action@(ExprS expr) = pushSimpleAction state action (ExpressionST expr)
   handleAction state action@(AssignmentS assignKind var expr) = pushSimpleAction state action (VarAssignST assignKind var expr)
   handleAction state action@(TemplateIncludeS name expr) = pushSimpleAction state action (IncludeST name expr)
@@ -126,7 +132,7 @@ convertElements tElements=
             h : rest -> Right (accum, h { children = nStmt : h.children } : rest)
 
 
-pushSimpleAction :: ([Statement], [NodeGast]) -> Action -> Statement -> Either String ([Statement], [NodeGast])
+pushSimpleAction :: ([RawStatement], [NodeGast errH typeH]) -> Action -> RawStatement -> Either String ([RawStatement], [NodeGast errH typeH])
 pushSimpleAction (accum, stack) action potentialStmt =
   if null stack then
     let
@@ -154,7 +160,7 @@ isSimpleUnstack action
   | otherwise = False
 
 
-unstackNodes :: [NodeGast] -> Either String (Statement, [NodeGast])
+unstackNodes :: [NodeGast errH typeH] -> Either String (RawStatement, [NodeGast errH typeH])
 unstackNodes [] = Left "@[unstackNodes] trying to unstack an empty NodeGast stack!"
 unstackNodes (topNode : rest) =
   if isSimpleUnstack topNode.action then
@@ -175,7 +181,7 @@ unstackNodes (topNode : rest) =
       _ -> Left $ "@[unstackNodes] unexpected node for unstacking: " <> show topNode
 
 
-combineChildren :: [Statement] -> Statement
+combineChildren :: [RawStatement] -> RawStatement
 combineChildren stmts =
   case stmts of
     [] -> NoOpST
@@ -191,7 +197,7 @@ matchSimpleElse action
   | otherwise = False
 
 -- ^ takes care of unrolling the stack for an else-if node; receives details, children and stack.
-handleElseIf :: ElseBranch -> [Statement] -> [NodeGast] -> Either String (Statement, [NodeGast])
+handleElseIf :: ElseBranch -> [RawStatement] -> [NodeGast errH typeH] -> Either String (RawStatement, [NodeGast errH typeH])
 handleElseIf _ _ [] = Left "@[unstackNodes] unexpected empty stack on ElseIfS handling!"
 handleElseIf ElseB children (prevNode : rest) =
   if matchSimpleElse prevNode.action then
@@ -220,7 +226,7 @@ handleElseIf (ElsePlusB kind expr) children (prevNode : rest) =
       handleElseContChain prevNode elseB rest
 
 
-handleElseContChain :: NodeGast -> Statement -> [NodeGast] -> Either String (Statement, [NodeGast])
+handleElseContChain :: NodeGast errH typeH -> RawStatement -> [NodeGast errH typeH] -> Either String (RawStatement, [NodeGast errH typeH])
 handleElseContChain _ _ [] = Left "@[handleElseContChain] unexpected empty stack unrolling."
 handleElseContChain thenNode elseStmt (hStack : tStack) =
   case hStack.action of
@@ -257,13 +263,13 @@ mkContStmt kind expr thenStmt elseStmt =
     WithK -> WithST expr thenStmt elseStmt
 
 
-matchElseContKind :: NodeGast -> PlusKind -> Bool
+matchElseContKind :: NodeGast errH typeH -> PlusKind -> Bool
 matchElseContKind node kind =
   case node.action of
     ElseIfS (ElsePlusB kind' _) -> kind == kind'
     _ -> False
 
-isIfKind :: NodeGast -> Bool
+isIfKind :: NodeGast errH typeH -> Bool
 isIfKind node =
   case node.action of
     IfS _ -> True
@@ -271,7 +277,7 @@ isIfKind node =
     _ -> False
 
 
-isWithKind :: NodeGast -> Bool
+isWithKind :: NodeGast errH typeH -> Bool
 isWithKind node =
   case node.action of
     WithS _ -> True
@@ -279,7 +285,7 @@ isWithKind node =
     _ -> False
 
 
-mkElseIfTree :: [ (Maybe Expression, [Statement]) ] -> Statement
+mkElseIfTree :: [ (Maybe Expression, [RawStatement]) ] -> RawStatement
 mkElseIfTree [] = NoOpST
 mkElseIfTree (hBlocks : tBlocks) =
   case hBlocks of
@@ -287,7 +293,7 @@ mkElseIfTree (hBlocks : tBlocks) =
     (Just expr, cStmts) -> IfST expr (combineChildren cStmts) (mkElseIfTree tBlocks)
 
 
-stmtListToStatement :: [Statement] -> Statement
+stmtListToStatement :: [RawStatement] -> RawStatement
 stmtListToStatement stmts =
   case stmts of
     [] -> NoOpST
@@ -295,12 +301,12 @@ stmtListToStatement stmts =
     h : rest -> ListST stmts
 
 
-fuseTwoNodes :: (Statement -> Statement -> Statement) -> String -> (Statement, Statement) -> Either String Statement
+fuseTwoNodes :: (RawStatement -> RawStatement -> RawStatement) -> String -> (RawStatement, RawStatement) -> Either String (RawStatement)
 fuseTwoNodes builder builderName (prevB, elseB) =
   Right $ builder prevB elseB
 
 
-simpleActionToStatement :: Action -> Either String Statement
+simpleActionToStatement :: Action -> Either String (RawStatement)
 simpleActionToStatement action =
   case action of
     ExprS expr -> Right $ ExpressionST expr
@@ -347,14 +353,16 @@ parseTemplateSource mbFileName input =
               pure . Right $ results
 
 
-processElement :: String ->TemplateElement -> Either (M.ParseErrorBundle BS.ByteString Void) TemplateElement
+processElement :: String -> TemplateElement -> Either (M.ParseErrorBundle BS.ByteString Void) TemplateElement
 processElement fileName verbatim@(Verbatim text) = Right verbatim
 processElement fileName (SourceCode codeText) =
   ParsedCode <$> parseCodeElement fileName codeText
 
 
+-- **** Parsing logic : ****
 parseTemplate :: String -> BS.ByteString -> Either (M.ParseErrorBundle BS.ByteString Void) [TemplateElement]
-parseTemplate = M.parse (M.many templateElementParser <* M.eof)
+parseTemplate = M.runParser (M.many templateElementParser <* M.eof)
+
 
 
 templateElementParser :: Parser TemplateElement
@@ -572,7 +580,7 @@ parentContextParser = oDbg "parentContextParser" $ do
 localVariableParser :: Parser Expression
 localVariableParser = oDbg "localVariableParser" $ do
   M.char (Bi.c2w '$')
-  ExprVariable . Variable LocalK <$> identifier
+  ExprVariable UnknownTI . Variable LocalK <$> identifier
 
 
 methodParser :: Parser Expression
@@ -582,19 +590,27 @@ methodParser = oDbg "methodParser" $ do
   args <- M.many restrictedTerm
   let
     kind = if isNothing isGlobal then MethodK else LocalMethodK
-  pure $ ExprMethodAccess (map (Variable kind) fields) args
+  pure $ ExprMethodAccess UnknownTI (map (Variable kind) fields) args
 
 
 literalParser :: Parser Expression
-literalParser = ExprLiteral <$> literal
+literalParser = do
+  exprInfo <- literal
+  let
+    typeInfo = case exprInfo of
+      LitBool _ -> ResolvedTI BoolHT
+      LitNumber True _ -> ResolvedTI FloatHT
+      LitNumber False _ -> ResolvedTI IntHT
+      LitString _ -> ResolvedTI StringHT
+  ExprLiteral typeInfo <$> literal
 
 
 literal :: Parser Literal
 literal = M.choice
     [ LitBool True  <$ symbol "true"
     , LitBool False <$ symbol "false"
-    , LitNumber <$> M.try float
-    , LitNumber . fromInteger <$> integer
+    , LitNumber True <$> M.try float
+    , LitNumber False . fromInteger <$> integer
     , LitString <$> quotedString
     ]
 
@@ -603,7 +619,7 @@ functionCallParser :: Parser Expression
 functionCallParser = oDbg "functionCallParser" $ do
     funcName <- oDbg "functionCallParser.funcName" identifier
     args <- oDbg "functionCallParser.args" $ M.many ( oDbg "functionCallParser.args.restrictedTerm" nonFunctionTerm)
-    return $ ExprFunctionCall funcName args
+    return $ ExprFunctionCall UnknownTI funcName args
 
 
 pipelineParser :: Parser Expression
@@ -611,7 +627,7 @@ pipelineParser = oDbg "pipelineParser" $ do
     expr <- oDbg "pipelineParser.expr" restrictedTerm
     skipper
     apps <- oDbg "pipelineParser.apps" $ M.some (symbol "|" *> oDbg "pipelineParser.apps.functionApplicationParser" functionApplicationParser) -- space *> M.char (Bi.c2w '|') *> M.space
-    pure $ ExprPipeline expr apps
+    pure $ ExprPipeline UnknownTI expr apps
 
 
 functionApplicationParser :: Parser FunctionApplication

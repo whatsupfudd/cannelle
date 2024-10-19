@@ -1,4 +1,4 @@
-module Text.Cannelle.Run.VM
+module Cannelle.Jinja.Run.VM
 where
 
 import Data.Monoid ( (<>) )
@@ -7,10 +7,10 @@ import Control.Monad.Reader (asks, local)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 
-import Text.Cannelle.Run.Type
-import Text.Cannelle.Run.FuncUtils
-import Text.Cannelle.JinjaAST
-import Text.Cannelle.GVal
+import Cannelle.Jinja.Run.Type
+import Cannelle.Jinja.Run.FuncUtils
+import Cannelle.Jinja.AST
+import Cannelle.Jinja.GVal
 
 
 -- | Helper function to run a State action with a temporary state, reverting

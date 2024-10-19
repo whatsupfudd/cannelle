@@ -1,11 +1,11 @@
 {-#LANGUAGE DeriveFunctor #-}
 -- | Implements Jinja's Abstract Syntax Tree.
-module Text.Cannelle.JinjaAST
+module Cannelle.Jinja.AST
 where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Text.Cannelle.Html
+import Cannelle.Jinja.Html
 import Data.Scientific (Scientific)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap

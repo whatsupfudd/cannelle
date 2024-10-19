@@ -5,7 +5,7 @@
 {-#LANGUAGE ScopedTypeVariables #-}
 {-#LANGUAGE FlexibleContexts #-}
 -- | A syntax tree optimizer
-module Text.Cannelle.Optimizer
+module Cannelle.Jinja.Optimizer
 ( Optimizable (..) )
 where
 
@@ -20,9 +20,9 @@ import Data.Text (Text)
 import qualified Data.Aeson as JSON
 import Data.Semigroup as Semigroup
 
-import Text.Cannelle.JinjaAST
-import Text.Cannelle.GVal
-import Text.Cannelle.Run
+import Cannelle.Jinja.AST
+import Cannelle.Jinja.GVal
+import Cannelle.Jinja.Run
 
 class Optimizable a where
     optimize :: a -> a
