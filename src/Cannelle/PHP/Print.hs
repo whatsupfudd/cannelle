@@ -101,12 +101,12 @@ printPhpContext content ctxt =
                       prefix <> "\n" <> postfix
         | otherwise = let
                         prefix = Bs.drop startCol (cLines V.! startLine)
-                        middle = V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine) cLines)
+                        middle = V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine - 1) cLines)
                         postfix = Bs.take endCol (cLines V.! endLine)
                       in
                       prefix <> middle <> "\n" <> postfix
     in
-    show lineNum <> "(" <> show startLine <> "," <> show startCol <> ")-(" <> show endLine <> "," <> show endCol <> "): " <> (T.unpack . T.decodeUtf8) mainText <> "\n"
+    show lineNum <> " (" <> show startLine <> "," <> show startCol <> ")-(" <> show endLine <> "," <> show endCol <> "): " <> (T.unpack . T.decodeUtf8) mainText <> "\n"
 
   showLogic :: Int -> [PhpAction] -> String
   showLogic level actions =
