@@ -29,17 +29,17 @@ import Cannelle.PHP.Parser.Types (TError (..))
 import Cannelle.PHP.AST (PhpContext (..))
 
 
-tsParsePhp :: FilePath -> IO (Either CompError PhpContext)
-tsParsePhp filePath = do
+tsParsePhp :: Bool -> FilePath -> IO (Either CompError PhpContext)
+tsParsePhp debugMode filePath = do
   -- putStrLn $ "@[tsParsePhp] parsing: " ++ filePath
   parser <- ts_parser_new
   ts_parser_set_language parser tree_sitter_php
   -- TODO: process the (Right PhpContext) returned by tryParsePhp into a FileTempl.
-  tryParsePhp parser filePath
+  tryParsePhp debugMode parser filePath
 
 
-tryParsePhp :: Ptr Parser -> FilePath -> IO (Either CompError PhpContext)
-tryParsePhp parser path = do
+tryParsePhp :: Bool -> Ptr Parser -> FilePath -> IO (Either CompError PhpContext)
+tryParsePhp debugMode parser path = do
   tmplString <- Bs.readFile path
 
   (cStr, strLen) <- newCStringLen $ unpack . T.decodeUtf8 $ tmplString
@@ -57,7 +57,7 @@ tryParsePhp parser path = do
   children <- mallocArray childCount
   ts_node_copy_child_nodes tsNodeMem children
 
-  rezA <- parseTsAst children childCount
+  rezA <- parseTsAst debugMode children childCount
 
   {- DEBUG:
   case rezA of
@@ -76,14 +76,13 @@ tryParsePhp parser path = do
 
 -- **** Parsing a TreeSitter's AST for PHP **** --
 
-parseTsAst :: Ptr Node -> Int -> IO (Either CompError PhpContext)
-parseTsAst children count = do
+parseTsAst :: Bool -> Ptr Node -> Int -> IO (Either CompError PhpContext)
+parseTsAst debugMode children count = do
   -- TODO: define the debug flag as part of parameters.
-  let showGraph = False
   -- algo: do the descent of ts nodes and extract into verbatim and logic blocks; parse the syntax of each logic block, reassemble into a tree of statements/expressions.
   nodeGraph <- analyzeChildren 0 children count
   -- putStrLn $ "@[parseTsChildren] nodeGraph: " <> show nodeGraph
-  when showGraph $ mapM_ (printNode 0) nodeGraph
+  when debugMode $ mapM_ (printNode 0) nodeGraph
   let
     scanRez = testScannerB nodeGraph
   case scanRez of

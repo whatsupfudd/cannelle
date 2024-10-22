@@ -91,17 +91,22 @@ printPhpContext content ctxt =
                           middle = if endLine == succ startLine then
                               ""
                             else
-                              V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice startLine (endLine - startLine - 1) cLines)
+                              V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine - 1) cLines)
                         in
                         prefix <> middle
+        | succ startLine == endLine = let
+                        prefix = Bs.drop startCol (cLines V.! startLine)
+                        postfix = Bs.take endCol (cLines V.! endLine)
+                      in
+                      prefix <> "\n" <> postfix
         | otherwise = let
                         prefix = Bs.drop startCol (cLines V.! startLine)
                         middle = V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine) cLines)
-                        postfix = Bs.drop endCol (cLines V.! endLine)
+                        postfix = Bs.take endCol (cLines V.! endLine)
                       in
-                      prefix <> middle <> postfix
+                      prefix <> middle <> "\n" <> postfix
     in
-    show lineNum <> ": " <> (T.unpack . T.decodeUtf8) mainText <> "\n"
+    show lineNum <> "(" <> show startLine <> "," <> show startCol <> ")-(" <> show endLine <> "," <> show endCol <> "): " <> (T.unpack . T.decodeUtf8) mainText <> "\n"
 
   showLogic :: Int -> [PhpAction] -> String
   showLogic level actions =
@@ -121,7 +126,7 @@ printPhpContext content ctxt =
       CommentA uid -> indent <> "CommentA " <> show uid
       MiscST name pos -> indent <> "MiscST " <> show name
       Interpolation content -> indent <> "Interpolation " <> concatMap (showAction level) content
-      NoOpAct -> ""
+      NoOpAct -> "<no-op>"
 
   showStatement :: Int -> PhpStatement -> String
   showStatement level stmt =

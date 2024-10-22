@@ -34,6 +34,8 @@ import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourc
 import qualified Cannelle.Hugo.Parse as Hg
 import qualified Cannelle.Fuddle.Parser as Fd
 import qualified Cannelle.PHP.Parse as Ph
+import Cannelle.PHP.Print (printPhpContext)
+
 
 import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..))
 
@@ -139,10 +141,15 @@ runPHP :: TemplateSource -> DataSource -> IO ()
 runPHP tplSrc dataSrc = do
   rezA <- case tplSrc of
     TemplateFromFile fn -> do
-      rezB <- Ph.tsParsePhp fn
-      pure $ Right ()
+      rezB <- Ph.tsParsePhp True fn
+      case rezB of
+        Left errMsg ->
+          putStrLn $ "@[runPHP] tsParsePhp err: " <> show errMsg
+        Right stmts -> do
+          content <- BS.readFile fn
+          printPhpContext content stmts
     TemplateFromStdin ->
-      pure . Left $ "@[runPHP] TemplateFromStdin not supported yet."
+      putStrLn $ "@[runPHP] TemplateFromStdin not supported yet."
   pure ()
 
 runFuddle :: TemplateSource -> DataSource -> IO ()
