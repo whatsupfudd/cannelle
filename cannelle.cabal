@@ -35,6 +35,7 @@ library
       Cannelle.Hugo.Defines
       Cannelle.Hugo.Parse
       Cannelle.Hugo.Types
+      Cannelle.InOut
       Cannelle.Jinja.AST
       Cannelle.Jinja.GVal
       Cannelle.Jinja.Html
@@ -79,6 +80,7 @@ library
       aeson >=1.4.2.0 && <2.3
     , aeson-pretty >=0.8.7 && <0.9
     , base >=4.8 && <5
+    , binary
     , bytestring >=0.10.8.2 && <0.12
     , containers >=0.6.4 && <0.7
     , cryptohash-md5
@@ -120,6 +122,7 @@ executable cannelle
       aeson >=1.4.2.0 && <2.3
     , aeson-pretty >=0.8.7 && <0.9
     , base >=4.8 && <5
+    , binary
     , bytestring >=0.10.8.2 && <0.12
     , cannelle
     , containers >=0.6.4 && <0.7
@@ -166,6 +169,7 @@ test-suite cannelle-test
       aeson >=1.4.2.0 && <2.3
     , aeson-pretty >=0.8.7 && <0.9
     , base >=4.8 && <5
+    , binary
     , bytestring >=0.10.8.2 && <0.12
     , containers >=0.6.4 && <0.7
     , cryptohash-md5

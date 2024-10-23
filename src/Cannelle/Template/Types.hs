@@ -1,8 +1,10 @@
 module Cannelle.Template.Types where
 
+import Data.Word (Word8)
+import Data.Int (Int32)
 import qualified Data.Map as Mp
 import qualified Data.Text as T
-
+import qualified Data.Vector as V
 import Cannelle.VM.Context (MainText, VMModule (..))
 
 {- File Template
@@ -17,25 +19,65 @@ import Cannelle.VM.Context (MainText, VMModule (..))
   of a .data segment in an object file).
 -}
 
-data FileTempl = FileTempl {
-  path :: FilePath
+data TemplateDef = TemplateDef {
+  name :: Maybe MainText
   , description :: Maybe MainText
-  , context :: ParameterMap
-  , logic :: [ FunctionTpl ]
-  , constants :: [ Parameter ]
+  , constants :: V.Vector ConstantTpl
+  , definitions :: V.Vector FunctionDefTpl
+  , routing :: V.Vector RouteTpl
+  , imports :: V.Vector ImportTpl
   }
   deriving Show
 
-{- Function -}
 
-type ParameterMap = Mp.Map MainText Parameter
+data RouteTpl = RouteTpl {
+  trigger :: MainText
+  , action :: ActionTpl
+  }
+  deriving Show
 
-data Parameter =
-  NumberP Int
+
+data ActionTpl =
+  TemplateTpl FilePath
+  | FunctionTl MainText
+  | RedirectTl FilePath
+  deriving Show
+
+
+data ImportTpl = ImportTpl {
+  path :: FilePath
+  , alias :: Maybe MainText
+  , reference :: [ MainText ]
+  }
+  deriving Show
+
+
+type ParameterMap = Mp.Map MainText ConstantTpl
+
+data ConstantTpl =
+  IntegerP Int
   | StringP MainText
   | BoolP Bool
-  | ListP [ Parameter ]
-  | TypeP MainText
+  | DoubleP Double
+  | ListP Int (V.Vector ConstantTpl)
+  | StructP Int (V.Vector ConstantTpl)
+  deriving Show
+
+constantKind :: ConstantTpl -> Word8
+constantKind (StringP _) = 1
+constantKind (IntegerP _) = 2
+constantKind (DoubleP _) = 3
+constantKind (BoolP _) = 4
+constantKind (ListP _ _) = 5
+constantKind (StructP _ _) = 6
+
+
+data FunctionDefTpl = FunctionDefTpl {
+  name :: MainText
+  , args :: V.Vector ConstantTpl
+  , returnType :: TypeDef
+  , ops :: V.Vector Int32
+  }
   deriving Show
 
 {- Logic: move to the Generator section? -}
@@ -47,18 +89,21 @@ data FunctionTpl =
   | CloneVerbatim FilePath
   deriving Show
 
+
 data NameBinding = NameBinding {
     name :: MainText
     , vType :: TypeDef
 }
   deriving Show
 
+
 data TypeDef =
-  NumberT
+  IntegerT
+  | DoubleT
   | StringT
   | BoolT
   | ListT TypeDef
   | TupleT [ TypeDef ]
-  | RecordT [ (MainText, TypeDef) ]
+  | StructT [ (MainText, TypeDef) ]
   | FunctionT [ TypeDef ] TypeDef
   deriving Show

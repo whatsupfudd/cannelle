@@ -1,143 +1,46 @@
 # Ginger
 
 
-[![Build Status](https://travis-ci.org/tdammers/ginger.svg?branch=master)](https://travis-ci.org/tdammers/ginger)
-[![Hackage](https://img.shields.io/hackage/v/ginger.svg)](https://hackage.haskell.org/package/ginger)
+# Cannelle
 
-![](http://ginger.tobiasdammers.nl/static/img/ginger-leaf.svg)
-
-A Haskell implementation of the [Jinja2](http://jinja.pocoo.org/) template
-language.
-
-> A note of warning: the git repository at https://bitbucket.org/tdammers/ginger
-> has been deleted and restored with a rewritten commit tree on 2016-04-06 in
-> order to clean up the messy history. This means that if you have a checkout
-> from before that date, merging the bitbucket repo will most likely break
-> things; please do a fresh clone to fix this. Sorry for the inconvenience.
+A template processing toolkit that supports the Jinja, Hugo, Fuddle and PHP syntaxes for efficient generation of textual content.
 
 ## Introduction
 
-Ginger provides most of the original Jinja2 template language, as much as that
-makes sense in a Haskell host application.
+*A template - A pattern or gauge used as a guide in making something accurately.*
 
-We do, however, avoid some of the most blatant Pythonisms, especially where we
-felt the features in question were more of an accidental result of binding
-template constructs to Python constructs.
+[The Template Engine](https://en.wikipedia.org/wiki/Template_processor) is an approach to document generation from the rule-based insertion of data into patterns that has been around for a long time.  Anyone remembers the report and mail-merge templates of the old Lotus 1-2-3/dBase softwares?
 
-On top of that, we deviate on a few points, and add some features that we think
-are very useful and help make the language better and more consistent.
+The Cannelle package provides a powerful set of tools to assemble of small patterns of text and data based on a driving logic.  The patterns can be any textual content, for example Haskell code. But Cannelle is usually applied to web
+documents and there are some additional facilities to integrate with web technologies such as [Daniell](https://whatsupfudd.com/projects/daniell/) and [EasyWordy](https://whatsupfudd.com/projects/easy-wordy/). The logic is expressed with:
 
-## Installation
+  - [Hugo's extension of Golang's text/template](https://gohugo.io/templates/)
+  - [Jinja](https://jinja.palletsprojects.com/)
+  - [Fuddle](https://whatsupfudd.com/projects/fuddle/)
+  - [PHP](https://www.php.net/)
 
-Ginger is available from [Hackage](https://hackage.haskell.org/package/ginger),
-and it is in Stackage, so you can use it in plain Cabal projects as well as
-Stack ones.
+Cannelle provides a universal virtual machine that runs the template logic and assembles data into the patterns to produce the final output at high speed.
 
-### Installing with Cabal:
+Cannelle also creates routing rules to provide the templates within a navigation/hypertext context.
 
-    cabal install ginger
+The Cannelle package recycles the [Ginger template engine](https://github.com/tdammers/ginger) and adds the additional syntaxes, the VM and a serialization of the parsed templates.
 
-### Installing with Stack:
+## Usage
 
-    stack install ginger
+The API of Cannelle is simple: 
 
-### Using as part of another project:
+ - call a **process** function of one of Cannelle's syntax parser with the path of the template and the path of the resulting processed format, and it transforms the source file into a verified and optimized representation.
+ - call the **render** function with the path of the processed template, the data context and the path of the output file to generate the output.
+ - use the variations of these two functions to read and write to different type of data streams (files, strings, etc.)
 
-Add the following to your `.cabal`'s `build-depends`:
 
-    ginger >=0.7.4.0 && <0.8
+## Components
+The Cannelle package is composed of the following components:
 
-## Template Syntax
+- Fuddle: for templates using the extended Fuddle syntax,
+- Hugo: for templates using Hugo's Golang text/template syntax,
+- Jinja: for templates using the Jinja syntax (recycled from Ginger),
+- PHP: for templates using the PHP syntax,
+- VM: a virtual machine specialized in the generation of textual content from assembly of templates and data,
+- InOut: a serialization of the parsed templates that is efficient for transport and execution.
 
-Full template syntax documentation is available from the `/docs` subdirectory
-in the project repository itself, or from [the User Guide section on the
-Ginger website](https://ginger.tobiasdammers.nl/guide).
-
-### Minimal example template
-
-    <!DOCTYPE html>
-    <html>
-        <head>
-            <title>{{ title }}</title>
-        </head>
-        {# This is a comment. Comments are removed from the output. #}
-        <body>
-            <menu id="nav-main">
-            {% for item in navigation %}
-                <li><a href="{{ item.url }}">{{ item.label }}</a></li>
-            {% endfor %}
-            </menu>
-            <div class="layout-content-main">
-                <h1>{{ title }}</h1>
-                {{ body }}
-            </div>
-        </body>
-    </html>
-
-There are three kinds of delimiters:
-
-- Interpolation, to inject values into the output; these default to `{{` and
-  `}}`
-- Flow Control, to create conditionals, loops, and other control constructs;
-  these default to `{%` and `%}`
-- Comments, which are removed from the output; these default to `{#` and `#}`.
-
-These delimiters can be changed on the Haskell side. In principle, any string
-is accepted for any delimiter; you may, however, get surprising results if you
-pick delimiters that clash with other Ginger syntax, or with one another (e.g.,
-using the same string to start interpolations and flow control constructs will
-not work).
-
-## Haskell API
-
-The Haskell API is documented fully through Haddock documentation, available
-from [Hackage](https://hackage.haskell.org/package/ginger). We'll just provide
-a short overview here.
-
-### General
-
-On the Haskell side of things, executing a template is a two-step process.
-First, template source code is parsed into a 'Template' data structure,
-which is then fed to 'runGinger' or 'runGingerT'.
-
-###  Parsing
-
-Because Ginger templates can include other templates, the parser needs a way of
-resolving template names. Instead of hard-wiring the parser into 'IO' though,
-Ginger will work on any Monad type, but requires the caller to provide a
-suitable template resolver function. For 'IO', the resolver would typically
-load a file from a template directory, but other monads might have access to
-some sort of cache, or expose template compiled into a program, or simply
-return 'Nothing' unconditionally to disable any and all imports. A suitable
-example implementation for 'IO' would look like this:
-
-    loadFile fn = openFile fn ReadMode >>= hGetContents
-
-    loadFileMay fn =
-        tryIOError (loadFile fn) >>= \e ->
-             case e of
-                Right contents ->
-                    return (Just contents)
-                Left err -> do
-                    print err -- remove this line if you want to fail silently
-                    return Nothing
-
-(Taken from `cli/GingerCLI.hs`). This interprets the template name as a
-filename relative to the CWD, and returns the file contents on success or
-'Nothing' if there is any error.
-
-If you don't need a monadic context for resolving includes (e.g. because you
-have pre-loaded all template sources), you can use the pure 'parseGinger'
-flavor, which does not rely on a host monad.
-
-### Running
-
-The core function for running a template is 'runGinger' (or its monadic
-flavor 'runGingerT'); in order to pass an initial context to the template
-engine, pass a suitable 'GingerContext', which you can create using the
-'makeContext' / 'makeContextM' functions.
-
-An example call (for running a template in 'IO') would look something like
-this:
-
-    runGingerT (makeContextM scopeLookup (putStr . Text.unpack . htmlSource)) tpl
