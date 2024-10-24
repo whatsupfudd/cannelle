@@ -35,7 +35,6 @@ library
       Cannelle.Hugo.Defines
       Cannelle.Hugo.Parse
       Cannelle.Hugo.Types
-      Cannelle.InOut
       Cannelle.Jinja.AST
       Cannelle.Jinja.GVal
       Cannelle.Jinja.Html
@@ -61,6 +60,7 @@ library
       Cannelle.PHP.Scanner
       Cannelle.PHP.State
       Cannelle.PHP.Types
+      Cannelle.Template.InOut
       Cannelle.Template.Types
       Cannelle.VM.Context
       Cannelle.VM.Engine

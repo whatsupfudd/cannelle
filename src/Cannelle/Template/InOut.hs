@@ -1,4 +1,4 @@
-module Cannelle.InOut where
+module Cannelle.Template.InOut where
 
 import qualified Data.Binary.Get as Bg
 import qualified Data.Binary.Put as Bp
@@ -10,6 +10,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 
 import Cannelle.VM.Context (MainText)
+import Cannelle.VM.OpCodes (dissassemble)
 import Cannelle.Template.Types
 
 
@@ -20,6 +21,34 @@ data TplHeader = TplHeader {
   , description :: Maybe MainText
   }
 
+
+showTemplateDef :: TemplateDef -> String
+showTemplateDef tmpl = "TemplateDef:\n"
+  <> "name: " <> show tmpl.name <> "\n"
+  <> "description: " <> show tmpl.description <> "\n"
+  <> "constants:\n" <> concatMap (\(c, idx) -> show idx <> ": " <> showConstantTpl c <> "\n") (zip (V.toList tmpl.constants) [0..]) <> "\n"
+  <> "definitions:\n" <> concatMap showFunctionDef (V.toList tmpl.definitions) <> "\n"
+  <> "routing: " <> show tmpl.routing <> "\n"
+  <> "imports: " <> show tmpl.imports <> "\n"
+
+showFunctionDef :: FunctionDefTpl -> String
+showFunctionDef function = "FunctionDefTpl:\n"
+  <> "name: " <> show function.name <> "\n"
+  <> "args: " <> show function.args <> "\n"
+  <> "returnType: " <> show function.returnType <> "\n"
+  <> "ops:\n" <> dissassemble function.ops <> "\n"
+
+showConstantTpl :: ConstantTpl -> String
+showConstantTpl (StringP str) = "StringP: " <> show str
+showConstantTpl (IntegerP int) = "IntegerP: " <> show int
+showConstantTpl (DoubleP double) = "DoubleP: " <> show double
+showConstantTpl (BoolP bool) = "BoolP: " <> show bool
+showConstantTpl (ListP _ array) = "ListP: " <> show array
+showConstantTpl (StructP _ struct) = "StructP: " <> show struct
+
+
+cantMaginNbr :: Int32
+cantMaginNbr = 0x043414e54
 
 read :: FilePath -> IO (Either String TemplateDef)
 read path = do
@@ -51,7 +80,7 @@ putTemplateDef :: TemplateDef -> Bp.Put
 putTemplateDef template =
   let
     header = TplHeader {
-      magic = 0x044414e54
+      magic = cantMaginNbr
       , version = 1
       , name = fromMaybe "$anonymous" template.name
       , description = template.description
@@ -71,67 +100,11 @@ putConstantsV1 constants = do
   mapM_ putAConstantV1 constants
 
 
-putAConstantV1 :: ConstantTpl -> Bp.Put
-putAConstantV1 constant = do
-  Bp.putWord8 (constantKind constant)
-  -- TODO: check the correctness of the ai-gen code:
-  case constant of
-    StringP str -> do
-      Bp.putInt32be (fromIntegral $ Bs.length str)
-      Bp.putByteString str
-    IntegerP anInt ->
-      Bp.putInt32be (fromIntegral anInt)
-    DoubleP double ->
-      Bp.putDoublebe double
-    BoolP bool ->
-      Bp.putWord8 (if bool then 1 else 0)
-    ListP _ array -> do
-      Bp.putInt32be (fromIntegral $ V.length array)
-      mapM_ putAConstantV1 array
-    StructP _ struct -> do
-      Bp.putInt32be (fromIntegral $ V.length struct)
-      mapM_ putAConstantV1 struct
-
-
-putDefinitionsV1 :: V.Vector ConstantTpl -> V.Vector FunctionDefTpl -> Bp.Put
-putDefinitionsV1 constants definitions = do
-  Bp.putInt32be (fromIntegral $ V.length definitions)
-  mapM_ (putAFunctionV1 constants) definitions
-
-
-putAFunctionV1 :: V.Vector ConstantTpl -> FunctionDefTpl -> Bp.Put
-putAFunctionV1 constants function = do
-  Bp.putInt32be (fromIntegral $ Bs.length function.name)
-  Bp.putByteString function.name
-  -- TODO: encode the args.
-  Bp.putInt32be (fromIntegral $ V.length function.args)
-  mapM_ (putArgDef constants) function.args
-  -- TODO: encode the return type
-  Bp.putInt32be 0
-  Bp.putInt32be (fromIntegral $ V.length function.ops)
-  mapM_ (Bp.putInt32be . fromIntegral) function.ops
-
-
-putArgDef :: V.Vector ConstantTpl -> ConstantTpl -> Bp.Put
-putArgDef constants arg = do
-  Bp.putInt32be 0
-
-
-putImportsV1 :: V.Vector ImportTpl -> Bp.Put
-putImportsV1 imports = do
-  Bp.putInt32be 0
-
-
-putRoutingV1 :: V.Vector RouteTpl -> Bp.Put
-putRoutingV1 routes = do
-  Bp.putInt32be 0
-
-
 getTemplateDef :: Bg.Get TemplateDef
 getTemplateDef = do
   header <- getTemplateHeader
   case header.magic of
-    0x044414e54 ->
+    cantMaginNbr ->
       case header.version of
         1 -> do
           constants <- getConstantsV1
@@ -182,7 +155,7 @@ getConstantsV1 = do
 
 
 getAConstantV1 :: Bg.Get ConstantTpl
-getAConstantV1 = do
+getAConstantV1 = Bg.label "getAConstantV1" $ do
   kind <- Bg.getWord8
   case kind of
     1 -> do    -- String
@@ -207,33 +180,103 @@ getAConstantV1 = do
     _ -> fail $ "Invalid constant kind: " <> show kind
 
 
+putAConstantV1 :: ConstantTpl -> Bp.Put
+putAConstantV1 constant = do
+  Bp.putWord8 (constantKind constant)
+  -- TODO: check the correctness of the ai-gen code:
+  case constant of
+    StringP str -> do
+      Bp.putInt32be (fromIntegral $ Bs.length str)
+      Bp.putByteString str
+    IntegerP anInt ->
+      Bp.putInt32be (fromIntegral anInt)
+    DoubleP double ->
+      Bp.putDoublebe double
+    BoolP bool ->
+      Bp.putWord8 (if bool then 1 else 0)
+    ListP _ array -> do
+      Bp.putInt32be (fromIntegral $ V.length array)
+      mapM_ putAConstantV1 array
+    StructP _ struct -> do
+      Bp.putInt32be (fromIntegral $ V.length struct)
+      mapM_ putAConstantV1 struct
+
+
+
 getDefinitionsV1 :: V.Vector ConstantTpl -> Bg.Get (V.Vector FunctionDefTpl)
-getDefinitionsV1 constants = do
+getDefinitionsV1 constants = Bg.label "getDefinitionsV1" $ do
   nbrDefinitions <- Bg.getInt32be
   V.fromList <$> mapM (const (getAFunctionV1 constants)) [1..nbrDefinitions]
 
 
+putDefinitionsV1 :: V.Vector ConstantTpl -> V.Vector FunctionDefTpl -> Bp.Put
+putDefinitionsV1 constants definitions = do
+  Bp.putInt32be (fromIntegral $ V.length definitions)
+  mapM_ (putAFunctionV1 constants) definitions
+
+
 getAFunctionV1 :: V.Vector ConstantTpl -> Bg.Get FunctionDefTpl
-getAFunctionV1 constants = do
+getAFunctionV1 constants = Bg.label "getAFunctionV1" $ do
+  nbrLn <- Bg.getInt32be
+  name <- Just <$>Bg.getByteString (fromIntegral nbrLn)
+  {-
   nameID <- Bg.getInt32be
-  nbrArgs <- Bg.getInt32be
-  argIDs <- mapM (const Bg.getInt32be) [1..nbrArgs]
-  returnID <- Bg.getInt32be
-  opsLng <- Bg.getInt32be
-  ops <- mapM (const Bg.getInt32be) [1..opsLng]
   let
     name = case constants V.! fromIntegral nameID of
       StringP str -> Just str
       -- TODO: return a failrure an error message.
       _ -> Nothing
-    args = V.fromList $ map (\argID -> constants V.! fromIntegral argID) argIDs
+  -}
+
+  nbrArgs <- Bg.getInt32be
+  argIDs <- mapM (const Bg.getInt32be) [1..nbrArgs]
+  let
+    args = V.empty
+
+  returnID <- Bg.getInt32be
+  let
     returnType = parseTypeDef $ constants V.! fromIntegral returnID
 
+  opsLng <- Bg.getInt32be
+  ops <- mapM (const Bg.getInt32be) [1..opsLng]
 
   case (name, returnType) of
     (Just name, Just typeDef) -> do
       pure $ FunctionDefTpl name args typeDef (V.fromList ops)
     _ -> fail "@[getAFunctionV1] Error in name/return type encoding."
+
+
+putAFunctionV1 :: V.Vector ConstantTpl -> FunctionDefTpl -> Bp.Put
+putAFunctionV1 constants function = do
+  -- Name's length (TODO: refer to the constants vector instead of serializing the string):
+  Bp.putInt32be (fromIntegral $ Bs.length function.name)
+  Bp.putByteString function.name
+
+  -- Nbr of args:
+  Bp.putInt32be (fromIntegral $ V.length function.args)
+  mapM_ (putArgDef constants) function.args
+  -- TODO: encode the return type
+  Bp.putInt32be 0
+
+  -- TODO: encode the args.
+  -- The opcodes:
+  Bp.putInt32be (fromIntegral $ V.length function.ops)
+  mapM_ (Bp.putInt32be . fromIntegral) function.ops
+
+
+putArgDef :: V.Vector ConstantTpl -> (MainText, TypeDef) -> Bp.Put
+putArgDef constants arg = do
+  Bp.putInt32be 0
+
+
+putImportsV1 :: V.Vector ImportTpl -> Bp.Put
+putImportsV1 imports = do
+  Bp.putInt32be 0
+
+
+putRoutingV1 :: V.Vector RouteTpl -> Bp.Put
+putRoutingV1 routes = do
+  Bp.putInt32be 0
 
 
 parseTypeDef :: ConstantTpl -> Maybe TypeDef

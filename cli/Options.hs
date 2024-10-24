@@ -15,7 +15,11 @@ data DataSource =
   | DataLiteral String
   | DataFromStdin
 
-data Options = RunOptions TemplateSource DataSource TechMode
+
+newtype OutputSpec = OutputSpec FilePath
+
+
+data Options = RunOptions TemplateSource DataSource TechMode (Maybe OutputSpec)
 
 
 data TechMode =
@@ -39,8 +43,16 @@ options = runOptions
 
 runOptions :: Parser Options
 runOptions =
-  RunOptions <$> templateSource <*> dataSource <*> techMode
+  RunOptions <$> templateSource <*> dataSource <*> techMode <*> optional outputSpec
 
+outputSpec :: Parser OutputSpec
+outputSpec =
+  OutputSpec <$> option str (
+      long "output"
+      <> short 'o'
+      <> metavar "OUTPUT"
+      <> help "Output of compiled template"
+    )
 
 templateSource :: Parser TemplateSource
 templateSource =

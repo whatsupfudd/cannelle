@@ -44,6 +44,10 @@ initHugoCompileCtxt = HugoCompileCtxt {
   , blocks = Mp.empty
 }
 
+showHugoCtxt :: FullCompContext -> String
+showHugoCtxt = C.showCompContext
+
+
 -- TODO: implement.
 registerVariable :: Variable -> CompType -> State FullCompContext Int32
 registerVariable (Variable varKind label) varType = pure 1
@@ -105,15 +109,19 @@ compileStmt (VerbatimST text) = do
 
 compileStmt (IfST condExpr thenStmt elseStmt) = do
   elseLabel <- A.newLabel
-  endLabel <- A.newLabel
   compileExpression condExpr
   A.emitOp CMP_BOOL_IMM
   A.emitOp $ JUMP_FALSE (LabelRef elseLabel)
   compileStmt thenStmt
-  A.emitOp $ JUMP_ABS (LabelRef endLabel)
-  A.setLabelPos elseLabel
-  compileStmt elseStmt
-  A.setLabelPos endLabel
+  case elseStmt of
+    NoOpST ->
+      A.setLabelPos elseLabel
+    _ -> do
+      endLabel <- A.newLabel
+      A.emitOp $ JUMP_ABS (LabelRef endLabel)
+      A.setLabelPos elseLabel
+      compileStmt elseStmt
+      A.setLabelPos endLabel
 
 
 compileStmt (RangeST mbVars expr thenStmt elseStmt) = do

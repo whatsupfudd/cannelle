@@ -74,7 +74,7 @@ constantKind (StructP _ _) = 6
 
 data FunctionDefTpl = FunctionDefTpl {
   name :: MainText
-  , args :: V.Vector ConstantTpl
+  , args :: V.Vector (MainText, TypeDef)
   , returnType :: TypeDef
   , ops :: V.Vector Int32
   }
@@ -106,4 +106,5 @@ data TypeDef =
   | TupleT [ TypeDef ]
   | StructT [ (MainText, TypeDef) ]
   | FunctionT [ TypeDef ] TypeDef
+  | VoidT
   deriving Show

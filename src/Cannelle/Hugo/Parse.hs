@@ -6,6 +6,7 @@ module Cannelle.Hugo.Parse where
 
 import Control.Monad (void, foldM)
 import Control.Applicative (empty, (<|>))
+import Control.Monad.Combinators (sepBy)
 
 
 import qualified Data.ByteString as BS
@@ -39,8 +40,8 @@ oDbg str p =
 
 
 -- *** The TemplateElement to Statement conversion part: ***
-showStatements :: [RawStatement] -> IO ()
-showStatements stmts = do
+printStatements :: [RawStatement] -> IO ()
+printStatements stmts = do
   putStrLn "Statements: ["
   case stmts of
     [] -> putStrLn ""
@@ -147,7 +148,6 @@ pushSimpleAction (accum, stack) action potentialStmt =
     in
     simpleActionToStatement action >>= \stmt ->
       Right (accum, h { children = stmt : h.children } : rest)
-
 
 
 isSimpleUnstack :: Action -> Bool
@@ -360,6 +360,18 @@ processElement fileName (SourceCode codeText) =
 
 
 -- **** Parsing logic : ****
+isReservedWord :: BS.ByteString -> Bool
+isReservedWord word =
+  case word of
+    "if" -> True
+    "else" -> True
+    "with" -> True
+    "define" -> True
+    "block" -> True
+    "template" -> True
+    "partial" -> True
+    _ -> False
+
 parseTemplate :: String -> BS.ByteString -> Either (M.ParseErrorBundle BS.ByteString Void) [TemplateElement]
 parseTemplate = M.runParser (M.many templateElementParser <* M.eof)
 
@@ -429,8 +441,8 @@ actionContentParser = oDbg "actionContentParser" $ M.choice [
 
 ifParser :: Parser Action
 ifParser = oDbg "ifParser" $ do
-    symbol "if"
-    IfS <$> term
+    oDbg "ifParser.if" $ symbol "if"
+    IfS <$> oDbg "ifParser.term" term
 
 
 elseParser :: Parser Action
@@ -527,27 +539,27 @@ exprParser = oDbg "exprParser" $ ExprS <$> term
 
 term :: Parser Expression
 term = oDbg "term" $ M.choice [
-    oDbg "term.pipelineParser" $ parens restrictedTerm
-    , oDbg "term.pipelineParser" $ M.try pipelineParser
-    , oDbg "term.variableOrMethodParser" $ M.try variableOrMethodParser
-    , oDbg "term.pipelineParser" $ M.try functionCallParser
-    , oDbg "term.pipelineParser" literalParser
+    oDbg "term.pipeline" $ M.try pipelineParser
+    , oDbg "term.restricted" restrictedTerm
+    -- , oDbg "term.variableOrMethod" $ M.try variableOrMethodParser
+    -- , oDbg "term.functionCall" $ M.try functionCallParser
+    -- , oDbg "term.literal" literalParser
   ]
 
 
 restrictedTerm :: Parser Expression
 restrictedTerm = oDbg "restrictedTerm" $ M.choice [
       oDbg "restrictedTerm.parens" $ parens term
-    , oDbg "restrictedTerm.functionCallParser" $ M.try functionCallParser
-    , oDbg "restrictedTerm.variableOrMethodParser" $ M.try variableOrMethodParser
-    , oDbg "restrictedTerm.literalParser" literalParser
+    , oDbg "restrictedTerm.functionCall" $ M.try functionCallParser
+    , oDbg "restrictedTerm.variableOrMethod" $ M.try variableOrMethodParser
+    , oDbg "restrictedTerm.literal" literalParser
   ]
 
 nonFunctionTerm :: Parser Expression
 nonFunctionTerm = oDbg "nonFunctionTerm" $ M.choice [
       oDbg "nonFunctionTerm.parens" $ parens term
-    , oDbg "restrictedTerm.variableOrMethodParser" $ M.try variableOrMethodParser
-    , oDbg "nonFunctionTerm.literalParser" literalParser
+    , oDbg "nonFunctionTerm.variableOrMethod" $ M.try variableOrMethodParser
+    , oDbg "nonFunctionTerm.literal" literalParser
   ]
 
 
@@ -594,20 +606,21 @@ methodParser = oDbg "methodParser" $ do
 
 
 literalParser :: Parser Expression
-literalParser = do
+literalParser = oDbg "literalParser" $ do
   exprInfo <- literal
+  skipper
   let
     typeInfo = case exprInfo of
       LitBool _ -> ResolvedTI BoolHT
       LitNumber True _ -> ResolvedTI FloatHT
       LitNumber False _ -> ResolvedTI IntHT
       LitString _ -> ResolvedTI StringHT
-  ExprLiteral typeInfo <$> literal
+  pure $ ExprLiteral typeInfo exprInfo
 
 
 literal :: Parser Literal
-literal = M.choice
-    [ LitBool True  <$ symbol "true"
+literal = oDbg "literal" $ M.choice
+    [ LitBool True <$ symbol "true"
     , LitBool False <$ symbol "false"
     , LitNumber True <$> M.try float
     , LitNumber False . fromInteger <$> integer
@@ -618,7 +631,9 @@ literal = M.choice
 functionCallParser :: Parser Expression
 functionCallParser = oDbg "functionCallParser" $ do
     funcName <- oDbg "functionCallParser.funcName" identifier
-    args <- oDbg "functionCallParser.args" $ M.many ( oDbg "functionCallParser.args.restrictedTerm" nonFunctionTerm)
+    mbArgs <- oDbg "functionCallParser.args" $ M.optional $ nonFunctionTerm `sepBy` M.space1
+    let
+      args = fromMaybe [] mbArgs
     return $ ExprFunctionCall UnknownTI funcName args
 
 
@@ -661,7 +676,12 @@ float = lexeme L.float
 
 
 identifier :: Parser BS.ByteString
-identifier = lexeme $ BS.pack <$> ((:) <$> letterOrUnderscore <*> M.many (M.alphaNumChar <|> M.char (Bi.c2w '_')))
+identifier = do
+  candidate <- lexeme $ BS.pack <$> ((:) <$> letterOrUnderscore <*> M.many (M.alphaNumChar <|> M.char (Bi.c2w '_')))
+  if isReservedWord candidate then
+    fail $ "reserved word: " <> show candidate
+  else
+    return candidate
   where
   letterOrUnderscore :: Parser Word8
   letterOrUnderscore = M.satisfy (\c -> isLetterW c || c == Bi.c2w '_')

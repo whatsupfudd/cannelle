@@ -13,7 +13,7 @@ import qualified Data.Vector as V
 import qualified Crypto.Hash.MD5 as Cr
 
 import Cannelle.Common.Error (CompError (..))
-import Cannelle.VM.OpCodes (OpCode (..), PcPtrT (..), opParCount)
+import Cannelle.VM.OpCodes (OpCode (..), PcPtrT (..), opParCount, toInstr)
 import Cannelle.VM.Context (MainText, ConstantValue (..))
 import Cannelle.Hugo.Types (GenCompileResult (..), CompContext (..), CompFunction (..), CompConstant (..))
 
@@ -95,7 +95,7 @@ assemble fct =
               -- if they are 2 separate args?
               (<>) accum . V.fromList <$> solveLabel opCode i32Labels
             else
-            Right $ V.snoc accum (fromIntegral (fromEnum opCode))
+              Right $ accum <> V.fromList (toInstr opCode)
           ) V.empty fct.opcodes
   where
   isLabeledCode :: OpCode -> Bool
@@ -140,7 +140,11 @@ derefLabels opCodes symbLabels =
           sOrigin = fromIntegral curPos
           sLength = fromIntegral (pos - curPos)
           eiNewPos
-            | curPos < pos = Right $ foldl (\aSum opCode -> fromIntegral (opParCount opCode) + aSum) curPos (V.slice sOrigin sLength opCodes)
+            | curPos < pos =
+              if V.length opCodes >= sOrigin + sLength then
+                Right $ foldl (\aSum opCode -> fromIntegral (opParCount opCode) + aSum) curPos (V.slice sOrigin sLength opCodes)
+              else
+                Left $ "@[derefLabels] label points to a non-existing code segment (" <> show label <> ")."
             | curPos == pos = Right curPos
             | otherwise = Left $ "@[derefLabels] label points before a previously generated label (" <> show label <> ")."
         in
@@ -151,7 +155,7 @@ derefLabels opCodes symbLabels =
 
 convertCompCteToTempl :: CompConstant -> ConstantValue
 convertCompCteToTempl (IntC a) = IntCte (fromIntegral a)
-convertCompCteToTempl (FloatC a) = FloatCte (realToFrac a)
+convertCompCteToTempl (DoubleC a) = DoubleCte (realToFrac a)
 convertCompCteToTempl (BoolC a) = IntCte (if a then 1 else 0)
 convertCompCteToTempl (StringC a) = StringCte a
 convertCompCteToTempl (VerbatimC a) = VerbatimCte False a

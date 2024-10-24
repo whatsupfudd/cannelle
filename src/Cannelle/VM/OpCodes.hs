@@ -378,7 +378,7 @@ opParCount BXOR = 0
 opParCount BNOT = 0
 opParCount ARR_CONCAT = 0
 opParCount ARR_ADD = 0
-opParCount (RETURN _) = 0
+opParCount (RETURN _) = 1
 opParCount HALT = 0
 opParCount FORCE_TO_STRING = 0
 opParCount IINC_1 = 0
@@ -476,18 +476,22 @@ toInstr a = error $ "fromEnum: bad argument" <> show a
 
 
 dissassemble :: V.Vector Int32 -> String
-dissassemble instrs =
+dissassemble = dissassembleWithPos 0
+
+
+dissassembleWithPos :: Int32 -> V.Vector Int32 -> String
+dissassembleWithPos pos instrs =
   if V.null instrs then
     ""
   else
-  let
-    instr = V.head instrs
-    rest = V.tail instrs
-    symbInstr = toEnum $ fromIntegral instr
-    instrName = takeWhile (/= ' ') (show symbInstr)
-    argCount = opParCount symbInstr
-    args = V.toList $ V.take argCount rest
-    remain = V.drop argCount rest
-    oneLine = "  " <> instrName <> concatMap (\a -> " " <> show a) args
-  in
-  oneLine <> "\n" <> dissassemble remain
+    let
+      instr = V.head instrs
+      rest = V.tail instrs
+      symbInstr = toEnum $ fromIntegral instr
+      instrName = takeWhile (/= ' ') (show symbInstr)
+      argCount = opParCount symbInstr
+      args = V.toList $ V.take argCount rest
+      remain = V.drop argCount rest
+      oneLine = "  " <> instrName <> concatMap (\a -> " " <> show a) args
+    in
+    oneLine <> "\n" <> dissassembleWithPos (pos + 1) remain

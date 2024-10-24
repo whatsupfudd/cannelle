@@ -13,7 +13,7 @@ import Cannelle.Common.Error (CompError)
 import Cannelle.VM.OpCodes
 import Cannelle.VM.Context (MainText)
 
-data (Show subCtxt) => CompContext subCtxt = CompContext {
+data (Show subCtxtT) => CompContext subCtxtT = CompContext {
     constants :: Mp.Map MainText (CompConstant, Int32)
     -- functions: fully parsed functions.
     , functions :: Mp.Map MainText (CompFunction, Int32)
@@ -22,7 +22,7 @@ data (Show subCtxt) => CompContext subCtxt = CompContext {
     , spitFctID :: Int32
     , curFctDef :: NonEmpty CompFunction
     , functionSlots :: Mp.Map MainText (FunctionRef, Int32)
-    , subContext :: subCtxt
+    , subContext :: subCtxtT
     , moduleMap :: Mp.Map Int32 (MainText, Maybe Int32)
     , revModuleMap :: Mp.Map MainText [(Int32, Maybe Int32)]
     , importedFcts :: Mp.Map MainText [ (FctDefComp, Int32) ]
@@ -30,10 +30,19 @@ data (Show subCtxt) => CompContext subCtxt = CompContext {
     , appliedFcts :: Mp.Map MainText AppliedFunction
   }
 
+showCompContext :: (Show subCtxtT) => CompContext subCtxtT -> String
+showCompContext ctx ="CompContext:\n  constants:" 
+  <> concatMap (\(cte, idx) -> "\n    " <> show idx <> ": " <> show cte) (L.sortOn snd $ Mp.elems ctx.constants) <> "\n"
+  <> "  functions:" <> concatMap (\(fct, idx) -> "\n    " <> show idx <> ": " <> show fct) (Mp.elems ctx.functions) <> "\n"
+  <> "  curFctDef:" <> show ctx.curFctDef <> "\n"
+  <> "  subContext:" <> show ctx.subContext <> "\n"
+
+
 data AppliedFunction = AppliedFunction {
     label :: NonEmpty MainText
     , uid :: Int32
   }
+
 
 -- TODO: move to the RunTime module:
 data FunctionRef =
@@ -43,7 +52,7 @@ data FunctionRef =
   deriving Show
 
 
-instance (Show subCtxt) => Show (CompContext subCtxt) where
+instance (Show subCtxtT) => Show (CompContext subCtxtT) where
   show c = "CompContext {\n    constants = ["
       <> concatMap (\cte -> "\n      , " <> show cte) (L.sortOn snd $ Mp.elems c.constants)
       <> "\n], functionSlots: " <> show c.functionSlots
@@ -79,11 +88,23 @@ instance Show CompFunction where
       <> "\n  , args = " <> show f.args
       <> "\n  , heapDef = " <> show f.heapDef
       <> "\n  , varAssignments = " <> show f.varAssignments
+      <> "\n  , opcodes = [" 
+        <> fst (V.foldl (\(acc, addr) op -> (acc <> "\n      , " <> showOpcode revLabels addr op, succ addr)) ("", 0) f.opcodes)
       <> "\n  , returnType = " <> show f.returnType
       <> "\n  , labels = " <> show f.labels
       <> "\n  , references = " <> show f.references
       <> "\n  , iterLabels = " <> show f.iterLabels
       <> "\n  , symbols = " <> show f.symbols <> "\n}"
+
+
+showOpcode :: Mp.Map Int32 Int32 -> Int32 -> OpCode -> String
+showOpcode revLabels addr op =
+  let
+    addrTxt = case Mp.lookup addr revLabels of
+      Just j -> show j <> " > "
+      Nothing -> ""
+  in
+  addrTxt <> show addr <> ":\t" <> show op
 
 
 data RefType =
@@ -125,7 +146,7 @@ data StructField =
 -- **** Compilation-time constants **** --
 data CompConstant =
   IntC Int32
-  | FloatC Double
+  | DoubleC Double
   | BoolC Bool
   | StringC MainText
   | VerbatimC MainText

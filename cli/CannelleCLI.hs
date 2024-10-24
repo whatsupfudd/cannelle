@@ -4,50 +4,70 @@
 -- one a file containing some context data in JSON format.
 {-#LANGUAGE OverloadedStrings #-}
 {-#LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 module Main where
 
-import Data.Text as Text
-import qualified Data.Text.Encoding as T
-import qualified Data.Aeson as JSON
-import qualified Data.Yaml as YAML
-import Data.Maybe
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
 import Control.Applicative
-import System.Environment ( getArgs )
-import System.IO
-import System.IO.Error
+import Control.Monad
+import Control.Monad.Trans.Maybe
+
+import Data.Int (Int32)
+import Data.List (sortOn)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.ByteString.Lazy as LBS
-import Control.Monad.Trans.Class ( lift )
-import Control.Monad.Trans.Maybe
-import Control.Monad
 import Data.Default ( def )
+import Control.Monad.Trans.Class ( lift )
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Map as Mp
+import Data.Maybe
+import qualified Data.List.NonEmpty as Ne
+import Data.Text (Text, unpack, pack)
+import Data.Text.Encoding (encodeUtf8)
+import qualified Data.Vector as V
+
+import qualified Data.Aeson as JSON
+import qualified Data.Yaml as YAML
+
+import System.Environment ( getArgs )
+import System.Exit
+import System.IO
+import System.IO.Error
+
 import System.Process as Process
 import Text.Printf (printf)
-import System.Exit
 
 import Text.Ginger
+
 import Cannelle.Jinja.Html
 import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourceLine, sourceColumn, parseGingerFile, parseGinger, formatParserError)
+
 import qualified Cannelle.Hugo.Parse as Hg
+import qualified Cannelle.Hugo.Compiler as Hg
+import qualified Cannelle.Hugo.Assembler as Hg
+import qualified Cannelle.Hugo.Types as Ht
+import Cannelle.Hugo.Types (CompContext (..))
+
 import qualified Cannelle.Fuddle.Parser as Fd
+
 import qualified Cannelle.PHP.Parse as Ph
 import Cannelle.PHP.Print (printPhpContext)
 
+import qualified Cannelle.Template.Types as Tp
+import qualified Cannelle.Template.InOut as Tio
+import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..), OutputSpec (..))
 
-import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..))
 
 main :: IO ()
 main = do
     args <- getArgs
     options <- parseOptions args
     case options of
-      RunOptions tpl dat tech ->
+      RunOptions tpl dat tech mbOut ->
         case tech of
           Jinja -> runJinja tpl dat
-          Hugo -> runHugo tpl dat
+          Hugo -> runHugo tpl dat mbOut
           PHP -> runPHP tpl dat
           Fuddle -> runFuddle tpl dat
 
@@ -60,7 +80,7 @@ loadData (DataLiteral str) = decodeString str
 
 loadTemplate :: TemplateSource -> IO (Template SourcePos)
 loadTemplate tplSrc = do
-    let resolve = loadFileMay
+    let resolve = loadFileMaybe
     (tpl, src) <- case tplSrc of
         TemplateFromFile fn -> (,) <$> parseGingerFile resolve fn <*> return Nothing
         TemplateFromStdin -> getContents >>= \s -> (,) <$> parseGinger resolve Nothing s <*> return (Just s)
@@ -98,25 +118,25 @@ runJinja tplSrc dataSrc = do
         let context =
                 makeContextHtmlExM
                     contextLookup
-                    (putStr . Text.unpack . htmlSource)
-                    (hPutStrLn stderr . show)
+                    (putStr . unpack . htmlSource)
+                    (hPrint stderr)
 
         tpl <- loadTemplate tplSrc
-        runGingerT context tpl >>= either (hPutStrLn stderr . show) showOutput
+        runGingerT context tpl >>= either (hPrint stderr) showOutput
         where
           showOutput value
             | isNull value = return ()
-            | otherwise = putStrLn . show $ value
+            | otherwise = print value
 
 
-runHugo :: TemplateSource -> DataSource -> IO ()
-runHugo tplSrc dataSrc = do
+runHugo :: TemplateSource -> DataSource -> Maybe OutputSpec -> IO ()
+runHugo tplSrc dataSrc mbOut = do
   rezA <- case tplSrc of
     TemplateFromFile fn -> do
-      src <- loadFileMay fn
+      src <- loadFileMaybe fn
       case src of
         Just string -> do
-          rezB <- Hg.parseTemplateSource (Just fn) (T.encodeUtf8 . Text.pack $ string)
+          rezB <- Hg.parseTemplateSource (Just fn) (encodeUtf8 . pack $ string)
           case rezB of
             Left errMsg ->
               pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
@@ -125,7 +145,7 @@ runHugo tplSrc dataSrc = do
         Nothing ->
           pure . Left $ "@[runHugo] Could not read file " <> fn
     TemplateFromStdin -> do
-      text <- T.encodeUtf8 . Text.pack <$> getContents
+      text <-encodeUtf8 . pack <$> getContents
       rezB <- Hg.parseTemplateSource Nothing text
       case rezB of
         Left errMsg ->
@@ -134,7 +154,49 @@ runHugo tplSrc dataSrc = do
           pure $ Hg.convertElements templateElements
   case rezA of
     Left errMsg -> putStrLn errMsg
-    Right statements -> Hg.showStatements statements
+    Right statements -> do
+      putStrLn $ "@[runHugo] statements:"
+      Hg.printStatements statements
+      case Hg.compileStatements "$main" statements of
+        Left err -> putStrLn $ "@[runHugo] compileStatements err: " <> show err
+        Right ctx -> do
+          putStrLn $ "@[runHugo] compiled ctx: " <> Hg.showHugoCtxt ctx
+          case mbOut of
+            Just (OutputSpec filePath) ->
+              let
+                template = Tp.TemplateDef {
+                  name = Just . encodeUtf8 . pack $ filePath
+                  , description = Nothing
+                  , constants = V.fromList $ map (hugoCteToTmpl . fst) . sortOn snd $ Mp.elems ctx.constants
+                  , definitions = V.singleton (hugoFctToTmpl (Ne.head ctx.curFctDef))
+                            <> V.fromList (map (hugoFctToTmpl . fst) . Mp.elems $ ctx.functions)
+                  , routing = V.empty
+                  , imports = V.empty
+                  }
+               in do
+                Tio.write filePath template
+                testTempl <- Tio.read filePath
+                case testTempl of
+                  Left err -> putStrLn $ "@[runHugo] Tio.read err: " <> err
+                  Right tmpl -> putStrLn $ "@[runHugo] read template:\n" <> Tio.showTemplateDef tmpl
+            Nothing -> return ()
+  where
+  hugoCteToTmpl :: Ht.CompConstant -> Tp.ConstantTpl
+  hugoCteToTmpl (Ht.IntC i) = Tp.IntegerP $ fromIntegral i
+  hugoCteToTmpl (Ht.DoubleC d) = Tp.DoubleP d
+  hugoCteToTmpl (Ht.BoolC b) = Tp.BoolP b
+  hugoCteToTmpl (Ht.StringC s) = Tp.StringP s
+  hugoCteToTmpl (Ht.VerbatimC s) = Tp.StringP s
+
+  hugoFctToTmpl :: Ht.CompFunction -> Tp.FunctionDefTpl
+  hugoFctToTmpl compFct = Tp.FunctionDefTpl {
+        name = compFct.name
+      , args = V.empty
+      , returnType = Tp.VoidT
+      , ops = case Hg.assemble compFct of
+            Left err -> error err
+            Right ops -> ops
+    }
 
 
 runPHP :: TemplateSource -> DataSource -> IO ()
@@ -180,16 +242,16 @@ displayParserError src pe = do
 
 loadFile fn = openFile fn ReadMode >>= hGetContents
 
-loadFileMay fn =
-    tryIOError (loadFile fn) >>= \e ->
-         case e of
+loadFileMaybe fn =
+    tryIOError (loadFile fn) >>= \case
             Right contents -> return (Just contents)
             Left err -> do
                 print err
                 return Nothing
 
+
 decodeFile :: (JSON.FromJSON v) => FilePath -> IO (Either YAML.ParseException v)
-decodeFile fn = YAML.decodeFileEither fn
+decodeFile = YAML.decodeFileEither
 
 decodeString :: (JSON.FromJSON v) => String -> IO (Either YAML.ParseException v)
 decodeString = return . YAML.decodeEither' . UTF8.fromString
@@ -202,7 +264,7 @@ printF = fromFunction $ go
     where
         go :: [(Maybe Text, GVal (Run p IO Html))] -> Run p IO Html (GVal (Run p IO Html))
         go args = forM_ args printArg >> return def
-        printArg (Nothing, v) = liftRun . putStrLn . Text.unpack . asText $ v
+        printArg (Nothing, v) = liftRun . putStrLn . unpack . asText $ v
         printArg (Just x, _) = return ()
 
 systemF :: GVal (Run p IO Html)
@@ -218,8 +280,8 @@ systemF = fromFunction $ go . fmap snd
         go xs = go $ Prelude.take 3 xs
 
 gAsStr :: GVal m -> String
-gAsStr = Text.unpack . asText
+gAsStr = unpack . asText
 
 strToGVal :: String -> GVal m
-strToGVal = toGVal . Text.pack
+strToGVal = toGVal . pack
 
