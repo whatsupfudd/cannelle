@@ -108,20 +108,26 @@ compileStmt (VerbatimST text) = do
 
 
 compileStmt (IfST condExpr thenStmt elseStmt) = do
-  elseLabel <- A.newLabel
+  notThenLabel <- A.newLabel
   compileExpression condExpr
   A.emitOp CMP_BOOL_IMM
-  A.emitOp $ JUMP_FALSE (LabelRef elseLabel)
+  A.emitOp $ JUMP_FALSE (LabelRef notThenLabel)
   compileStmt thenStmt
   case elseStmt of
     NoOpST ->
-      A.setLabelPos elseLabel
-    _ -> do
-      endLabel <- A.newLabel
-      A.emitOp $ JUMP_ABS (LabelRef endLabel)
-      A.setLabelPos elseLabel
+      A.setLabelPos notThenLabel
+    IfST {} -> do
+      sndLabel <- A.newLabel
+      A.emitOp $ JUMP_ABS (LabelRef sndLabel)
+      A.setLabelPos notThenLabel
       compileStmt elseStmt
-      A.setLabelPos endLabel
+      A.setLabelPos sndLabel
+    _ -> do
+      sndLabel <- A.newLabel
+      A.emitOp $ JUMP_ABS (LabelRef sndLabel)
+      A.setLabelPos notThenLabel
+      compileStmt elseStmt
+      A.setLabelPos sndLabel
 
 
 compileStmt (RangeST mbVars expr thenStmt elseStmt) = do
@@ -135,17 +141,24 @@ compileStmt (RangeST mbVars expr thenStmt elseStmt) = do
       pure $ Just (valID, mbIdxID)
     Nothing -> pure Nothing
   iterLabel <- A.newLabel
-  elseLabel <- A.newLabel
   endLabel <- A.newLabel
   -- TODO: figure out how to handle the iterator's implicit looping index variable.
   compileIterator iterLabel mbValIDs expr
   A.emitOp CMP_BOOL_IMM
-  A.emitOp $ JUMP_FALSE (LabelRef elseLabel)
-  C.pushIterLabels (iterLabel, endLabel)
-  compileStmt thenStmt
-  A.emitOp $ JUMP_ABS (LabelRef iterLabel)
-  A.setLabelPos elseLabel
-  compileStmt elseStmt
+  case elseStmt of
+    NoOpST -> do
+      A.emitOp $ JUMP_FALSE (LabelRef endLabel)
+      C.pushIterLabels (iterLabel, endLabel)
+      compileStmt thenStmt
+      A.emitOp $ JUMP_ABS (LabelRef iterLabel)
+    _ -> do
+      elseLabel <- A.newLabel
+      A.emitOp $ JUMP_FALSE (LabelRef elseLabel)
+      C.pushIterLabels (iterLabel, endLabel)
+      compileStmt thenStmt
+      A.emitOp $ JUMP_ABS (LabelRef iterLabel)
+      A.setLabelPos elseLabel
+      compileStmt elseStmt
   A.setLabelPos endLabel
   C.popIterLabels
 

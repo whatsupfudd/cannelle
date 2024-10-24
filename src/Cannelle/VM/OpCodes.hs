@@ -479,7 +479,7 @@ dissassemble :: V.Vector Int32 -> String
 dissassemble = dissassembleWithPos 0
 
 
-dissassembleWithPos :: Int32 -> V.Vector Int32 -> String
+dissassembleWithPos :: Int -> V.Vector Int32 -> String
 dissassembleWithPos pos instrs =
   if V.null instrs then
     ""
@@ -492,6 +492,6 @@ dissassembleWithPos pos instrs =
       argCount = opParCount symbInstr
       args = V.toList $ V.take argCount rest
       remain = V.drop argCount rest
-      oneLine = "  " <> instrName <> concatMap (\a -> " " <> show a) args
+      oneLine = show pos <> ": " <> instrName <> concatMap (\a -> " " <> show a) args
     in
-    oneLine <> "\n" <> dissassembleWithPos (pos + 1) remain
+    oneLine <> "\n" <> dissassembleWithPos (pos + 4 + 4 * opParCount symbInstr) remain

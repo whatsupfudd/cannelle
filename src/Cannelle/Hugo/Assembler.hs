@@ -6,6 +6,7 @@ import Control.Monad (foldM)
 import qualified Data.Map as Mp
 import Data.Int (Int32)
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -51,13 +52,17 @@ setLabelPos labelID = do
       in do
       put ctx { hasFailed = Just . T.encodeUtf8 . T.pack $ errMsg }
       pure . Left $ CompError [(0, errMsg)]
-    Just aPos ->
-      let
-        opPos = fromIntegral $ V.length curFct.opcodes
-        newFctDef = curFct { labels = Mp.insert labelID (Just opPos) curFct.labels }
-      in do
-      put ctx { curFctDef = newFctDef :| tailFcts }
-      pure $ Right ()
+    Just mbPos ->
+      case mbPos of
+        Just aPos ->
+          pure . Left $ CompError [(0, "Label " <> show labelID <> " already set to " <> show aPos <> ".")]
+        Nothing ->
+          let
+            opPos = fromIntegral $ V.length curFct.opcodes
+            newFctDef = curFct { labels = Mp.insert labelID (Just opPos) curFct.labels }
+          in do
+          put ctx { curFctDef = newFctDef :| tailFcts }
+          pure $ Right ()
 
 
 addStringConstant :: (Show sc) => MainText -> State (CompContext sc) Int32
@@ -125,32 +130,27 @@ assemble fct =
 derefLabels :: V.Vector OpCode -> Mp.Map Int32 (Maybe Int32) -> Either String (Mp.Map Int32 Int32)
 derefLabels opCodes symbLabels =
   let
-    derefedLabels = foldM adjustPositions ([], opCodes, 0) $ Mp.assocs symbLabels
+    derefedLabels = foldM (adjustPositions opCodes) ([], 0, 0) $ L.sortOn snd (Mp.toList symbLabels)
   in
   case derefedLabels of
     Left err -> Left err
-    Right (dList, _, _) -> Right . Mp.fromList . reverse $ dList
+    Right (dList, _, _) -> Right $ Mp.fromList dList
   where
-  adjustPositions :: ([(Int32, Int32)], V.Vector OpCode, Int32) -> (Int32, Maybe Int32) -> Either String ([(Int32, Int32)], V.Vector OpCode, Int32)
-  adjustPositions (accum, opCodes, curPos) (label, mbPos) =
-    case mbPos of
-      Nothing -> Left $ "Label " <> show label <> " not found"
-      Just pos ->
+  adjustPositions :: V.Vector OpCode -> ([(Int32, Int32)], Int, Int) -> (Int32, Maybe Int32) -> Either String ([(Int32, Int32)], Int, Int)
+  adjustPositions opCodes (accum, curByteDist, curOpCount) (label, mbOpPos) =
+    case mbOpPos of
+      Nothing -> Left $ "Label " <> show label <> " not defined."
+      Just opPos ->
         let
-          sOrigin = fromIntegral curPos
-          sLength = fromIntegral (pos - curPos)
-          eiNewPos
-            | curPos < pos =
-              if V.length opCodes >= sOrigin + sLength then
-                Right $ foldl (\aSum opCode -> fromIntegral (opParCount opCode) + aSum) curPos (V.slice sOrigin sLength opCodes)
-              else
-                Left $ "@[derefLabels] label points to a non-existing code segment (" <> show label <> ")."
-            | curPos == pos = Right curPos
-            | otherwise = Left $ "@[derefLabels] label points before a previously generated label (" <> show label <> ")."
+          sLength = fromIntegral opPos - curOpCount
+          eiNewBytePos = if curOpCount + sLength > V.length opCodes then
+            Left $ "Label " <> show label <> " out of bounds (" <> show curOpCount <> " + " <> show sLength <> " > " <> show (V.length opCodes) <> ")."
+          else
+            Right $ foldl (\aSum opCode -> aSum + 4 + 4 * opParCount opCode) curByteDist (V.slice curOpCount sLength opCodes)
         in
-        case eiNewPos of
+        case eiNewBytePos of
           Left err -> Left err
-          Right newPos -> Right ((label, newPos) : accum, V.drop sLength opCodes, newPos)
+          Right newBytePos -> Right ((label, fromIntegral newBytePos) : accum, newBytePos, curOpCount + sLength)
 
 
 convertCompCteToTempl :: CompConstant -> ConstantValue
