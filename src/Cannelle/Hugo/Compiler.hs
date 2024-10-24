@@ -118,13 +118,13 @@ compileStmt (IfST condExpr thenStmt elseStmt) = do
       A.setLabelPos notThenLabel
     IfST {} -> do
       sndLabel <- A.newLabel
-      A.emitOp $ JUMP_ABS (LabelRef sndLabel)
+      A.emitOp $ JUMP (LabelRef sndLabel)
       A.setLabelPos notThenLabel
       compileStmt elseStmt
       A.setLabelPos sndLabel
     _ -> do
       sndLabel <- A.newLabel
-      A.emitOp $ JUMP_ABS (LabelRef sndLabel)
+      A.emitOp $ JUMP (LabelRef sndLabel)
       A.setLabelPos notThenLabel
       compileStmt elseStmt
       A.setLabelPos sndLabel
@@ -150,13 +150,13 @@ compileStmt (RangeST mbVars expr thenStmt elseStmt) = do
       A.emitOp $ JUMP_FALSE (LabelRef endLabel)
       C.pushIterLabels (iterLabel, endLabel)
       compileStmt thenStmt
-      A.emitOp $ JUMP_ABS (LabelRef iterLabel)
+      A.emitOp $ JUMP (LabelRef iterLabel)
     _ -> do
       elseLabel <- A.newLabel
       A.emitOp $ JUMP_FALSE (LabelRef elseLabel)
       C.pushIterLabels (iterLabel, endLabel)
       compileStmt thenStmt
-      A.emitOp $ JUMP_ABS (LabelRef iterLabel)
+      A.emitOp $ JUMP (LabelRef iterLabel)
       A.setLabelPos elseLabel
       compileStmt elseStmt
   A.setLabelPos endLabel
@@ -174,7 +174,7 @@ compileStmt (WithST expr thenStmt elseStmt) = do
   A.emitOp $ JUMP_FALSE (LabelRef elseLabel)
   A.emitOp $ SET_VAR withCtxtID
   compileStmt thenStmt
-  A.emitOp $ JUMP_ABS (LabelRef endLabel)
+  A.emitOp $ JUMP (LabelRef endLabel)
   A.emitOp $ SET_VAR withCtxtID
   A.setLabelPos elseLabel
   compileStmt elseStmt
@@ -195,14 +195,14 @@ compileStmt (ReturnST expr) = do
 compileStmt ContinueST = do
   mbIterLabels <- C.getIterationLabel
   case mbIterLabels of
-    Just (iterLabel, endLabel) -> A.emitOp $ JUMP_ABS (LabelRef iterLabel)
+    Just (iterLabel, endLabel) -> A.emitOp $ JUMP (LabelRef iterLabel)
     Nothing -> pure . Left $ CompError [(0, "No active loop to continue.")]
 
 
 compileStmt BreakST = do
   mbIterLabels <- C.getIterationLabel
   case mbIterLabels of
-    Just (iterLabel, endLabel) -> A.emitOp $ JUMP_ABS (LabelRef endLabel)
+    Just (iterLabel, endLabel) -> A.emitOp $ JUMP (LabelRef endLabel)
 
 
 compileStmt (ExpressionST expr) = do

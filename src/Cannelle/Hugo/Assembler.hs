@@ -94,37 +94,39 @@ assemble fct =
   case derefLabels fct.opcodes fct.labels of
     Left err -> Left err
     Right i32Labels ->
-      V.foldM (\accum opCode ->
-            if isLabeledCode opCode then
-              -- Haskell syntax: why does this work? accum is a 0-arg function (a var), why is <> working on that and the fromList as
-              -- if they are 2 separate args?
-              (<>) accum . V.fromList <$> solveLabel opCode i32Labels
-            else
-              Right $ accum <> V.fromList (toInstr opCode)
-          ) V.empty fct.opcodes
+      fst <$> V.foldM (\(accum, pcCounter) opCode ->
+          let
+            newPcCounter = pcCounter + 1 + opParCount opCode
+          in
+          if isLabeledCode opCode then
+            -- Create a tuple if the solveLabel is successful, otherwise return the error:
+            ((,) . (<>) accum . V.fromList <$> solveLabel pcCounter opCode i32Labels) <*> Right newPcCounter
+          else
+                Right $ (accum <> V.fromList (toInstr opCode), newPcCounter)
+        ) (V.empty, 0) fct.opcodes
   where
   isLabeledCode :: OpCode -> Bool
   isLabeledCode opCode = case opCode of
-    JUMP_ABS _ -> True
+    JUMP _ -> True
     JUMP_REL _ -> True
     JUMP_TRUE _ -> True
     JUMP_FALSE _ -> True
     _ -> False
-  solveLabel :: OpCode -> Mp.Map Int32 Int32 -> Either String [ Int32 ]
-  solveLabel opCode i32Labels =
+  solveLabel :: Int -> OpCode -> Mp.Map Int32 Int32 -> Either String [ Int32 ]
+  solveLabel pcCounter opCode i32Labels =
     let
       jumpI32 = fromIntegral . fromEnum $ opCode
       label = case opCode of
-        JUMP_ABS label -> label
+        JUMP label -> label
         JUMP_REL label -> label
         JUMP_TRUE label -> label
         JUMP_FALSE label -> label
     in
     case label of
       LabelRef anID -> case Mp.lookup anID i32Labels of
-        Just pos -> Right [ jumpI32, pos ]
+        Just pos -> Right [ jumpI32, pos - fromIntegral pcCounter - 2 ]
         Nothing -> Left $ "Label " <> show label <> " not found"
-      I32Pc pos -> Right [ jumpI32, pos ]
+      I32Pc pos -> Right [ jumpI32, pos - fromIntegral pcCounter - 2 ]
 
 
 derefLabels :: V.Vector OpCode -> Mp.Map Int32 (Maybe Int32) -> Either String (Mp.Map Int32 Int32)
@@ -146,7 +148,7 @@ derefLabels opCodes symbLabels =
           eiNewBytePos = if curOpCount + sLength > V.length opCodes then
             Left $ "Label " <> show label <> " out of bounds (" <> show curOpCount <> " + " <> show sLength <> " > " <> show (V.length opCodes) <> ")."
           else
-            Right $ foldl (\aSum opCode -> aSum + 4 + 4 * opParCount opCode) curByteDist (V.slice curOpCount sLength opCodes)
+            Right $ foldl (\aSum opCode -> aSum + 1 + opParCount opCode) curByteDist (V.slice curOpCount sLength opCodes)
         in
         case eiNewBytePos of
           Left err -> Left err

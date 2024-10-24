@@ -82,7 +82,7 @@ data CompFunction = CompFunction {
 instance Show CompFunction where
   show f = 
     let
-      revLabels = Mp.foldrWithKey (\k mbV acc -> case mbV of Nothing -> acc; Just v -> Mp.insert v k acc) (Mp.empty :: Mp.Map Int32 Int32) f.labels
+      revLabels = Mp.foldrWithKey (\k mbV acc -> case mbV of Nothing -> acc; Just v -> Mp.insertWith (<>) v [k] acc) (Mp.empty :: Mp.Map Int32 [Int32]) f.labels
     in
     "CompFunction {\n    name = " <> show f.name
       <> "\n  , args = " <> show f.args
@@ -97,11 +97,13 @@ instance Show CompFunction where
       <> "\n  , symbols = " <> show f.symbols <> "\n}"
 
 
-showOpcode :: Mp.Map Int32 Int32 -> Int32 -> OpCode -> String
+showOpcode :: Mp.Map Int32 [Int32] -> Int32 -> OpCode -> String
 showOpcode revLabels addr op =
   let
     addrTxt = case Mp.lookup addr revLabels of
-      Just j -> show j <> " > "
+      Just j -> case j of
+        [ a ] -> show a <> " > "
+        _ -> L.intercalate ", " (map show j) <> " > "
       Nothing -> ""
   in
   addrTxt <> show addr <> ":\t" <> show op

@@ -46,7 +46,7 @@ data OpCode =
   | CMP_FLOAT_IMM
   | CMP_DOUBLE_IMM
   -- PC ops:
-  | JUMP_ABS PcPtrT
+  | JUMP PcPtrT
   | JUMP_REL PcPtrT
   | JUMP_INDEX RegID
   | JUMP_TRUE PcPtrT
@@ -147,7 +147,7 @@ instance Enum OpCode where
   fromEnum (CMP_INT_IMM _) = 18
   fromEnum CMP_FLOAT_IMM = 19
   fromEnum CMP_DOUBLE_IMM = 20
-  fromEnum (JUMP_ABS _) = 21
+  fromEnum (JUMP _) = 21
   fromEnum (JUMP_REL _) = 22
   fromEnum (JUMP_INDEX _) = 23
   fromEnum (JUMP_TRUE _) = 24
@@ -235,7 +235,7 @@ instance Enum OpCode where
   toEnum 18 = CMP_INT_IMM 0
   toEnum 19 = CMP_FLOAT_IMM
   toEnum 20 = CMP_DOUBLE_IMM
-  toEnum 21 = JUMP_ABS (I32Pc 0)
+  toEnum 21 = JUMP (I32Pc 0)
   toEnum 22 = JUMP_REL (I32Pc 0)
   toEnum 23 = JUMP_INDEX 0
   toEnum 24 = JUMP_TRUE (I32Pc 0)
@@ -323,7 +323,7 @@ opParCount CMP_CHAR_IMM = 0
 opParCount (CMP_INT_IMM _)= 0
 opParCount CMP_FLOAT_IMM = 0
 opParCount CMP_DOUBLE_IMM = 0
-opParCount (JUMP_ABS _) = 1
+opParCount (JUMP _) = 1
 opParCount (JUMP_REL _) = 1
 opParCount (JUMP_INDEX _) = 1
 opParCount (JUMP_TRUE _) = 1
@@ -409,7 +409,7 @@ toInstr CMP_CHAR_IMM = [17]
 toInstr (CMP_INT_IMM a1) = [18, a1]
 toInstr CMP_FLOAT_IMM = [19]
 toInstr CMP_DOUBLE_IMM = [20]
-toInstr (JUMP_ABS a1) = case a1 of I32Pc x -> [21, x]; LabelRef _ -> [21, 0]
+toInstr (JUMP a1) = case a1 of I32Pc x -> [21, x]; LabelRef _ -> [21, 0]
 toInstr (JUMP_REL a1) = case a1 of I32Pc x -> [22, x]; LabelRef _ -> [22, 0]
 toInstr (JUMP_INDEX a1) = [23, a1]
 toInstr (JUMP_TRUE a1) = case a1 of I32Pc x -> [24, x]; LabelRef _ -> [24, 0]
@@ -494,4 +494,4 @@ dissassembleWithPos pos instrs =
       remain = V.drop argCount rest
       oneLine = show pos <> ": " <> instrName <> concatMap (\a -> " " <> show a) args
     in
-    oneLine <> "\n" <> dissassembleWithPos (pos + 4 + 4 * opParCount symbInstr) remain
+    oneLine <> "\n" <> dissassembleWithPos (pos + 1 + opParCount symbInstr) remain

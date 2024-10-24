@@ -172,7 +172,7 @@ doOpcode context frame opWithArgs =
             pure $ Right (context, frame { pc = frame.pc + fromIntegral newPC }, True)
       else
         pure $ Right (context, frame, True)
-    JUMP_ABS _ ->
+    JUMP _ ->
       -- jump to immediate value.
       case opWithArgs V.!? 1 of
         Nothing ->
