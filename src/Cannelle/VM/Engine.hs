@@ -30,7 +30,7 @@ newtype ExecResult = ExecResult VmContext
 execModule :: VMModule -> IO (Either String ExecResult)
 execModule vmModule =
   let
-    fakeFrame = Frame { stack = [], heap = V.empty
+    fakeFrame = ExecFrame { stack = [], heap = V.empty
         , pc = 0, flags = NoFlag
         , function = FunctionDef {
             moduleID = 0
@@ -89,7 +89,7 @@ execCodeOnFunctionID ctxt (moduleID, fctID) =
         Init ->
           let
             -- TODO: pass the global variables as heap values.
-            newFrame = Frame { stack = [], heap = V.empty
+            newFrame = ExecFrame { stack = [], heap = V.empty
                 , pc = 0, flags = NoFlag
                 , function = fctDef, returnValue = (Nothing, Nothing)
               }
@@ -109,7 +109,7 @@ doVM context =
     ByteCode opcodes ->
       doByteCodeVM context curFrame opcodes
   where
-  doByteCodeVM :: VmContext -> Frame -> V.Vector Int32 -> IO (Either String VmContext)
+  doByteCodeVM :: VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either String VmContext)
   doByteCodeVM inCtxt frame opcodes =
     case opcodes V.!? frame.pc of
       Nothing -> pure $ Right inCtxt { status = Halted }
@@ -143,7 +143,7 @@ analyzeVmError err heap stack =
     StackError msg -> "Stack error: " <> msg
 
 
-doOpcode :: VmContext -> Frame -> V.Vector Int32 -> IO (Either VmError (VmContext, Frame, Bool))
+doOpcode :: VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, Bool))
 doOpcode context frame opWithArgs =
   let
     opcode = toEnum . fromIntegral $ V.head opWithArgs
@@ -292,7 +292,7 @@ doOpcode context frame opWithArgs =
     _ -> pure . Left $ UnimplementedOpCode opcode
 
 
-popString :: VmContext -> Frame -> Either VmError (Frame, BS.ByteString, Bool)
+popString :: VmContext -> ExecFrame -> Either VmError (ExecFrame, BS.ByteString, Bool)
 popString context frame =
   let
     (mbTopValue, newStack) = case frame.stack of
@@ -333,7 +333,7 @@ popString context frame =
           Left . StackError $ "@[popString] invalid popped value of type " <> show aType <> " for string dereference."
 
 
-popBool :: VmContext -> Frame -> Either VmError (Frame, Bool)
+popBool :: VmContext -> ExecFrame -> Either VmError (ExecFrame, Bool)
 popBool context frame =
   let
     (mbTopValue, newStack) = case frame.stack of

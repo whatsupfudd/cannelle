@@ -3,7 +3,7 @@ module Cannelle.Hugo.Types where
 import Control.Monad.State (State)
 
 import qualified Data.ByteString as Bs
-import Data.Int (Int32)
+import Data.Int (Int32, Int64)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List as L
 import qualified Data.Map as Mp
@@ -15,19 +15,25 @@ import Cannelle.VM.Context (MainText)
 
 data (Show subCtxtT) => CompContext subCtxtT = CompContext {
     constants :: Mp.Map MainText (CompConstant, Int32)
+    , doubleConstants :: Mp.Map Double (Int32, Double)
+    , i64Constants :: Mp.Map Int64 (Int32, Int64)
     -- functions: fully parsed functions.
     , functions :: Mp.Map MainText (CompFunction, Int32)
     , hasFailed :: Maybe MainText
     , unitCounter :: Int32
+    , uidCounter :: Int32
+    , fctCounter :: Int32
     , spitFctID :: Int32
     , curFctDef :: NonEmpty CompFunction
-    , functionSlots :: Mp.Map MainText (FunctionRef, Int32)
     , subContext :: subCtxtT
     , moduleMap :: Mp.Map Int32 (MainText, Maybe Int32)
     , revModuleMap :: Mp.Map MainText [(Int32, Maybe Int32)]
     , importedFcts :: Mp.Map MainText [ (FctDefComp, Int32) ]
+    , functionSlots :: Mp.Map MainText (FunctionRef, Int32)
+    {-- unused:
     , functionAlias :: Mp.Map MainText Int32
     , appliedFcts :: Mp.Map MainText AppliedFunction
+    --}
   }
 
 showCompContext :: (Show subCtxtT) => CompContext subCtxtT -> String
@@ -67,15 +73,18 @@ instance (Show subCtxtT) => Show (CompContext subCtxtT) where
 -- Representation of a function being compiled:
 data CompFunction = CompFunction {
     name :: MainText
+    , uid :: Int32
+    , labels :: Mp.Map Int32 (Maybe Int32)
+    , iterLabels :: [ (Int32, Int32) ]
+    , opcodes :: V.Vector OpCode
+    {- unused.
     , args :: [ (MainText, CompType) ]
     , heapDef :: Mp.Map MainText (Int32, CompType)
     , varAssignments :: Mp.Map MainText Int32
-    , opcodes :: V.Vector OpCode
     , returnType :: CompType
-    , labels :: Mp.Map Int32 (Maybe Int32)
     , references :: Mp.Map MainText (RefType, Int32)
-    , iterLabels :: [ (Int32, Int32) ]
     , symbols :: Mp.Map MainText Int32
+    --}
   }
 
 
@@ -85,17 +94,18 @@ instance Show CompFunction where
       revLabels = Mp.foldrWithKey (\k mbV acc -> case mbV of Nothing -> acc; Just v -> Mp.insertWith (<>) v [k] acc) (Mp.empty :: Mp.Map Int32 [Int32]) f.labels
     in
     "CompFunction {\n    name = " <> show f.name
-      <> "\n  , args = " <> show f.args
-      <> "\n  , heapDef = " <> show f.heapDef
-      <> "\n  , varAssignments = " <> show f.varAssignments
       <> "\n  , opcodes = [" 
         <> fst (V.foldl (\(acc, addr) op -> (acc <> "\n      , " <> showOpcode revLabels addr op, succ addr)) ("", 0) f.opcodes)
-      <> "\n  , returnType = " <> show f.returnType
       <> "\n  , labels = " <> show f.labels
-      <> "\n  , references = " <> show f.references
       <> "\n  , iterLabels = " <> show f.iterLabels
+    {--
+      <> "\n  , args = " <> show f.args
+      <> "\n  , returnType = " <> show f.returnType
+      <> "\n  , heapDef = " <> show f.heapDef
+      <> "\n  , varAssignments = " <> show f.varAssignments
+      <> "\n  , references = " <> show f.references
       <> "\n  , symbols = " <> show f.symbols <> "\n}"
-
+    --}
 
 showOpcode :: Mp.Map Int32 [Int32] -> Int32 -> OpCode -> String
 showOpcode revLabels addr op =
@@ -174,7 +184,16 @@ data Signature = SgnS {
   }
   deriving Show
 
-
 -- Overall state container for the compiation process:
-type GenCompileResult subCtxt = State (CompContext subCtxt) (Either CompError ())
+type GenCompileResult subCtxt node = State (CompContext subCtxt) (Either CompError node)
+
+-- Hugo-specific compilation context:
+data HugoCompileCtxt = HugoCompileCtxt {
+    internalTemplates :: Mp.Map MainText Int32
+    , externalTemplates :: Mp.Map MainText Int32
+    , blocks :: Mp.Map MainText Int32
+  }
+  deriving Show
+
+type FullCompContext = CompContext HugoCompileCtxt
 

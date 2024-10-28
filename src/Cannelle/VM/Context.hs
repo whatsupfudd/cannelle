@@ -18,7 +18,7 @@ type MainText = Bs.ByteString
 
 data VmContext = VmContext {
     status :: StatusVM
-    , frameStack :: NonEmpty Frame
+    , frameStack :: NonEmpty ExecFrame
     , outStream :: BS.ByteString
     , modules :: V.Vector VMModule
     -- TODO: decide if this is useful given each module has a constants vector.
@@ -101,7 +101,7 @@ data HeapEntry =
   deriving Show
 
 
-data Frame = Frame {
+data ExecFrame = ExecFrame {
     stack :: Stack
     , heap :: Heap
     , function :: FunctionDef

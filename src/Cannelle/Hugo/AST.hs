@@ -2,9 +2,71 @@
 module Cannelle.Hugo.AST
 where
 
+import Data.Int (Int32)
 import qualified Data.ByteString as BS
 import Data.Text (Text)
 import Data.Scientific (Scientific)
+
+
+
+data LineColumn = LineColumn {
+    lin :: Int32
+    , col :: Int32
+  }
+  deriving (Show, Eq)
+
+data Position = Position {
+    start :: LineColumn
+    , end :: LineColumn
+  }
+  deriving (Show, Eq)
+
+data FStatement = FStatement {
+    uid :: Int32
+    , as :: FStatementCore    -- as -> actual statement.
+    , lineInfo :: Position
+  }
+  deriving (Show, Eq)
+
+
+data FStatementCore =
+  VerbatimFS Int32
+  | ExpressionFS FExpression
+  | IfFS FExpression FStatement (Maybe FStatement)
+  | RangeFS (Maybe (Int32, Maybe Int32)) FExpression FStatement (Maybe FStatement)
+  | WithFS Int32 FExpression FStatement (Maybe FStatement)
+  | DefineFS Int32 Int32 FStatement        -- ^ labelID, returnSize, body
+  | BlockFS Int32 Int32 FExpression FStatement
+  | IncludeFS Int32 FExpression
+  | PartialFS Int32 FExpression
+  | ReturnFS FExpression
+  | VarAssignFS AsngKind Int32 FExpression
+  | ListFS [FStatement]
+  | ContinueFS
+  | BreakFS
+  | NoOpFS
+  deriving (Show, Eq)
+
+
+data FExpression = FExpression {
+    uid :: Int32
+    , ae :: FExpressionCore      -- ae -> actual expression.
+    , typeInfo :: TypeInfo
+    , lineInfo :: Position
+  }
+  deriving (Show, Eq)
+
+
+data FExpressionCore = 
+  LiteralEC FLiteral
+  | VariableEC VarKind Int32
+  | CurrentContextEC
+  | ParentContextEC
+  | MethodAccessEC [(VarKind, Int32)] [FExpression]
+  | FunctionCallEC Int32 [FExpression]
+  | PipelineEC FExpression [FExpression]      -- Only for ClosureEC for now.
+  | ClosureEC Int32 [FExpression]
+  deriving (Show, Eq)
 
 
 data TypeInfo =
@@ -17,13 +79,33 @@ data HugoType =
   BoolHT
   | IntHT
   | FloatHT
+  | DoubleHT
   | StringHT
   | ListHT
   | DictHT
   | DynamicHT
   deriving (Show, Eq)
 
+
+data FLiteral = FLiteral { lType :: HugoType, lValue :: Int32Equiv }
+  deriving (Show, Eq)
+
+data Int32Equiv =
+  IntVal Int32
+  | FloatVal Float
+  deriving (Show, Eq)
+
+
+fromIntEquiv :: Int32Equiv -> Int32
+fromIntEquiv (IntVal int) = int
+fromIntEquiv (FloatVal _) = error "fromIntEquiv: FloatVal"
+
+fromFloatEquiv :: Int32Equiv -> Float
+fromFloatEquiv (IntVal _) = error "fromFloatEquiv: IntVal"
+fromFloatEquiv (FloatVal aFloat) = aFloat
+
 -- TODO: carry the line number into the statements so they can show up in error messages.
+
 
 data RawStatement =
   VerbatimST BS.ByteString
@@ -51,12 +133,12 @@ data NodeGast errH typeH = NodeGast {
   deriving (Show, Eq)
 
 
-data TemplateElement
+data FileUnitElement
     = Verbatim BS.ByteString  -- ^ Plain text content
     | SourceCode BS.ByteString      -- ^ Text inside {{ and }}
     | ParsedCode Action          -- ^ Parsed code inside {{ and }}
     deriving (Eq)
-instance Show TemplateElement where
+instance Show FileUnitElement where
   show (Verbatim text) = "Verbatim(" <> show text <> ")\n"
   show (SourceCode text) = "SourceCode(" <> show text <> ")\n"
   show (ParsedCode actions) = "ParsedCode(" <> show actions <> ")\n"
@@ -116,13 +198,13 @@ data VarKind =
 
 -- | Expressions within actions
 data Expression =
-      ExprLiteral TypeInfo Literal                       -- ^ A literal value
-    | ExprVariable TypeInfo Variable                     -- ^ A variable (e.g., $var)
+      ExprLiteral Literal                       -- ^ A literal value
+    | ExprVariable Variable                     -- ^ A variable (e.g., $var)
     | ExprCurrentContext                        -- ^ The current context (.)
     | ExprParentContext                         -- ^ The parent context (..)
-    | ExprMethodAccess TypeInfo [Variable][Expression]         -- ^ Field access (e.g., .Title)
-    | ExprFunctionCall TypeInfo BS.ByteString [Expression]      -- ^ Function call (e.g., printf)
-    | ExprPipeline TypeInfo Expression [FunctionApplication] -- ^ A pipeline of functions
+    | ExprMethodAccess [Variable][Expression]         -- ^ Field access (e.g., .Title)
+    | ExprFunctionCall BS.ByteString [Expression]      -- ^ Function call (e.g., printf)
+    | ExprPipeline Expression [FunctionApplication] -- ^ A pipeline of functions
     deriving (Show, Eq)
 
 -- | Application of a function in a pipeline

@@ -19,7 +19,7 @@ import Cannelle.VM.Context (MainText, ConstantValue (..))
 import Cannelle.Hugo.Types (GenCompileResult (..), CompContext (..), CompFunction (..), CompConstant (..))
 
 
-emitOp :: (Show sc) => OpCode -> GenCompileResult sc
+emitOp :: (Show sc) => OpCode -> GenCompileResult sc ()
 emitOp instr = do
   ctx <- get
   let
@@ -40,7 +40,7 @@ newLabel = do
   pure labelID
 
 
-setLabelPos :: (Show sc) => Int32 -> GenCompileResult sc
+setLabelPos :: (Show sc) => Int32 -> GenCompileResult sc ()
 setLabelPos labelID = do
   ctx <- get
   let
@@ -73,6 +73,18 @@ addVerbatimConstant :: (Show sc) => MainText -> State (CompContext sc) Int32
 addVerbatimConstant newConst =
   addTypedConstant (VerbatimC newConst) $ Cr.hash newConst
 
+addDoubleConstant :: (Show sc) => Double -> State (CompContext sc) Int32
+addDoubleConstant newConst = do
+  ctx <- get
+  let
+    existing = Mp.lookup newConst ctx.doubleConstants
+  case existing of
+    Just (cteID, _) -> pure cteID
+    Nothing -> do
+      let
+        cteID = fromIntegral $ Mp.size ctx.doubleConstants
+      put ctx { doubleConstants = Mp.insert newConst (cteID, newConst) ctx.doubleConstants }
+      pure cteID
 
 addTypedConstant :: (Show sc) => CompConstant -> MainText -> State (CompContext sc) Int32
 addTypedConstant newConst md5Hash = do
@@ -124,7 +136,8 @@ assemble fct =
     in
     case label of
       LabelRef anID -> case Mp.lookup anID i32Labels of
-        Just pos -> Right [ jumpI32, pos - fromIntegral pcCounter - 2 ]
+        Just pos ->
+          Right [ jumpI32, pos - fromIntegral pcCounter - 2 ]
         Nothing -> Left $ "Label " <> show label <> " not found"
       I32Pc pos -> Right [ jumpI32, pos - fromIntegral pcCounter - 2 ]
 

@@ -28,12 +28,16 @@ library
       Cannelle.Fuddle.Ast
       Cannelle.Fuddle.Compiler
       Cannelle.Fuddle.Parser
+      Cannelle.Hugo.ActionMerger
       Cannelle.Hugo.Assembler
       Cannelle.Hugo.AST
       Cannelle.Hugo.Common
-      Cannelle.Hugo.Compiler
+      Cannelle.Hugo.CompilerA
+      Cannelle.Hugo.CompilerB
       Cannelle.Hugo.Defines
       Cannelle.Hugo.Parse
+      Cannelle.Hugo.Parser
+      Cannelle.Hugo.TemplateConv
       Cannelle.Hugo.Types
       Cannelle.Jinja.AST
       Cannelle.Jinja.GVal

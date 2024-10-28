@@ -23,7 +23,9 @@ import Cannelle.Hugo.Types (GenCompileResult (..), CompContext (..), CompType (.
 import qualified Cannelle.Hugo.Types as C
 import qualified Cannelle.Hugo.Common as C
 import qualified Cannelle.Hugo.Assembler as A
+import qualified Cannelle.Hugo.Defines as D
 import Cannelle.Hugo.AST
+
 
 data HugoCompileCtxt = HugoCompileCtxt {
     internalTemplates :: Mp.Map MainText Int32
@@ -33,7 +35,9 @@ data HugoCompileCtxt = HugoCompileCtxt {
   deriving Show
 
 type FullCompContext = CompContext HugoCompileCtxt
-type CompileResult = GenCompileResult HugoCompileCtxt
+type CompileResult = GenCompileResult HugoCompileCtxt ()
+type StmtCompRez = GenCompileResult HugoCompileCtxt FStatement
+type ExprCompRez = GenCompileResult HugoCompileCtxt FExpression
 
 
 --- *** Utility functions *** ---
@@ -71,48 +75,65 @@ getExternalTemplate label = pure 0
 
 
 -- *** AST to OpCodes logic *** ---
-compileStatements :: MainText -> [RawStatement] -> Either CompError FullCompContext
-compileStatements funcName stmts =
+compileRawStmts :: MainText -> [RawStatement] -> Either CompError FullCompContext
+compileRawStmts funcName stmts =
   -- TODO: find out how to detect errors and pass on to caller.
   let
-    newCtx = C.initCompContext funcName initHugoCompileCtxt
-    (rezA, finalState) = runState (mapM compileStmt stmts) newCtx
+    newCtx = C.initCompContext funcName initHugoCompileCtxt D.impModules D.impFunctions
+    (rezA, finalState) = runState (mapM compileRaw stmts) newCtx
   in
   case concatErrors rezA of
     Nothing -> Right finalState
     Just errs -> Left errs
 
+-- TODO: find all unknowns and resolve their IDs, locations (imports) and types.
+resolveStmts :: [FStatement] -> ([FStatement], FullCompContext)
+resolveStmts = undefined
 
-compileStmt :: RawStatement -> CompileResult
-compileStmt (VarAssignST assgnKind var expr) = do
-  eiVarID <- case assgnKind of
+
+-- TODO: generate opcodes from the resolved statements for all functions defined in the FileUnit.
+genOpCodes :: [FStatement] -> FullCompContext
+genOpCodes = undefined
+
+
+compileRaw :: RawStatement -> CompileResult
+compileRaw stmt@(VarAssignST assignKind identVa valueVa) = do
+  eiVarID <- case assignKind of
     DefinitionK -> do
-      eiVarID <- dereferVariable var
+      eiVarID <- dereferVariable identVa
       case eiVarID of
         -- TODO: carry the line number into the statements so they can show up in error messages.
-        Just varID -> pure . Left $ CompError [(0, "Variable already defined: " <> show var)]
+        Just varID -> pure . Left $ CompError [(0, "Variable already defined: " <> show varID)]
         -- TODO: extract type expected from the variable.
-        Nothing -> Right <$> registerVariable var UnknownVT
+        Nothing -> do
+          newVarID <- registerVariable identVa UnknownVT
+          pure . Right $ stmt
+    _ -> do
+      mbVarID <- dereferVariable identVa
+      case mbVarID of
+        Just varID ->
+          pure . Right $ stmt
+        Nothing -> pure . Left $ CompError [(0, "Variable not found: " <> show identVa)]
   case eiVarID of
     Left err -> pure $ Left err
-    Right varID -> do
-      compileExpression expr
-      A.emitOp $ SET_VAR varID
+    Right newVarStmt@(VarAssignST _ nVarID nValueVa) -> do
+      compileExpression nValueVa
+      A.emitOp $ SET_HEAP 1  -- nVarID
 
 
-compileStmt (VerbatimST text) = do
+compileRaw (VerbatimST text) = do
   cteID <- A.addVerbatimConstant text
   A.emitOp $ PUSH_CONST cteID
   ctx <- get
   A.emitOp $ REDUCE ctx.spitFctID 1
 
 
-compileStmt (IfST condExpr thenStmt elseStmt) = do
+compileRaw (IfST condExpr thenStmt elseStmt) = do
   notThenLabel <- A.newLabel
   compileExpression condExpr
   A.emitOp CMP_BOOL_IMM
   A.emitOp $ JUMP_FALSE (LabelRef notThenLabel)
-  compileStmt thenStmt
+  compileRaw thenStmt
   case elseStmt of
     NoOpST ->
       A.setLabelPos notThenLabel
@@ -120,17 +141,17 @@ compileStmt (IfST condExpr thenStmt elseStmt) = do
       sndLabel <- A.newLabel
       A.emitOp $ JUMP (LabelRef sndLabel)
       A.setLabelPos notThenLabel
-      compileStmt elseStmt
+      compileRaw elseStmt
       A.setLabelPos sndLabel
     _ -> do
       sndLabel <- A.newLabel
       A.emitOp $ JUMP (LabelRef sndLabel)
       A.setLabelPos notThenLabel
-      compileStmt elseStmt
+      compileRaw elseStmt
       A.setLabelPos sndLabel
 
 
-compileStmt (RangeST mbVars expr thenStmt elseStmt) = do
+compileRaw (RangeST mbVars expr thenStmt elseStmt) = do
   mbValIDs <- case mbVars of
     Just (RangeVars valVar mbIdxVar) -> do
       -- TODO: extract type expected from the variable.
@@ -149,21 +170,21 @@ compileStmt (RangeST mbVars expr thenStmt elseStmt) = do
     NoOpST -> do
       A.emitOp $ JUMP_FALSE (LabelRef endLabel)
       C.pushIterLabels (iterLabel, endLabel)
-      compileStmt thenStmt
+      compileRaw thenStmt
       A.emitOp $ JUMP (LabelRef iterLabel)
     _ -> do
       elseLabel <- A.newLabel
       A.emitOp $ JUMP_FALSE (LabelRef elseLabel)
       C.pushIterLabels (iterLabel, endLabel)
-      compileStmt thenStmt
+      compileRaw thenStmt
       A.emitOp $ JUMP (LabelRef iterLabel)
       A.setLabelPos elseLabel
-      compileStmt elseStmt
+      compileRaw elseStmt
   A.setLabelPos endLabel
   C.popIterLabels
 
 
-compileStmt (WithST expr thenStmt elseStmt) = do
+compileRaw (WithST expr thenStmt elseStmt) = do
   -- TODO: extract type expected from the expr and use it to specialise the context variable type:
   withCtxtID <- registerWithContext (StructVT (C.AnonymousSF UnknownVT :| []))
   elseLabel <- A.newLabel
@@ -172,12 +193,12 @@ compileStmt (WithST expr thenStmt elseStmt) = do
   A.emitOp DUP_1
   A.emitOp CMP_BOOL_IMM
   A.emitOp $ JUMP_FALSE (LabelRef elseLabel)
-  A.emitOp $ SET_VAR withCtxtID
-  compileStmt thenStmt
+  A.emitOp $ SET_HEAP withCtxtID
+  compileRaw thenStmt
   A.emitOp $ JUMP (LabelRef endLabel)
-  A.emitOp $ SET_VAR withCtxtID
+  A.emitOp $ SET_HEAP withCtxtID
   A.setLabelPos elseLabel
-  compileStmt elseStmt
+  compileRaw elseStmt
   A.setLabelPos endLabel
   where
   -- TODO: implement; it returns the index of a new local variable that will hold the localContext within the
@@ -186,75 +207,75 @@ compileStmt (WithST expr thenStmt elseStmt) = do
   registerWithContext varType = pure 1
 
 
-compileStmt (ReturnST expr) = do
+compileRaw (ReturnST expr) = do
   compileExpression expr
   -- TODO: put the right number of values to return.
   A.emitOp $ RETURN 0
 
 
-compileStmt ContinueST = do
-  mbIterLabels <- C.getIterationLabel
+compileRaw ContinueST = do
+  mbIterLabels <- C.getIterLabels
   case mbIterLabels of
     Just (iterLabel, endLabel) -> A.emitOp $ JUMP (LabelRef iterLabel)
     Nothing -> pure . Left $ CompError [(0, "No active loop to continue.")]
 
 
-compileStmt BreakST = do
-  mbIterLabels <- C.getIterationLabel
+compileRaw BreakST = do
+  mbIterLabels <- C.getIterLabels
   case mbIterLabels of
     Just (iterLabel, endLabel) -> A.emitOp $ JUMP (LabelRef endLabel)
 
 
-compileStmt (ExpressionST expr) = do
+compileRaw (ExpressionST expr) = do
   ctx <- get
   compileExpression expr
   A.emitOp FORCE_TO_STRING
   A.emitOp $ REDUCE ctx.spitFctID 1
 
 
-compileStmt (DefineST label body) = do
+compileRaw (DefineST label body) = do
   C.pushFunctionComp label
-  compileStmt body
+  compileRaw body
   -- TODO: check if the define block returns a value.
   -- TODO: put the right number of values to return.
   A.emitOp $ RETURN 0
   C.popFunctionComp
 
 
-compileStmt (BlockST label contextExpr stmt) = do
+compileRaw (BlockST label contextExpr stmt) = do
   C.pushFunctionComp label
   blockID <- registerBlock label
   -- TODO: figure out how to implement the local context variable.
   localCtx <- registerVariable (Variable LocalK "$blockCtx") (StructVT (C.AnonymousSF UnknownVT :| []))
   compileExpression contextExpr
-  A.emitOp $ SET_VAR localCtx
+  A.emitOp $ SET_HEAP localCtx
   A.emitOp $ REDUCE blockID 1
   C.setFunctionContext blockID
-  compileStmt stmt
+  compileRaw stmt
   -- TODO: put the right number of values to return.
   A.emitOp $ RETURN 0
   C.popFunctionComp
 
-compileStmt (IncludeST label expr) = do
+compileRaw (IncludeST label expr) = do
   templateID <- getInternalTemplate label
   compileExpression expr
   A.emitOp $ REDUCE templateID 1
 
 
-compileStmt (PartialST label expr) = do
+compileRaw (PartialST label expr) = do
   templateID <- getExternalTemplate label
   compileExpression expr
   A.emitOp $ REDUCE templateID 1
 
 
-compileStmt (ListST stmts) = do
-  rezA <- mapM compileStmt stmts
+compileRaw (ListST stmts) = do
+  rezA <- mapM compileRaw stmts
   case concatErrors rezA of
     Nothing -> pure $ Right ()
     Just err -> pure $ Left err
 
 
-compileStmt NoOpST = pure $ Right ()
+compileRaw NoOpST = pure $ Right ()
 
 
 compileIterator :: Int32 -> Maybe (Int32, Maybe Int32) -> Expression -> CompileResult
@@ -268,22 +289,22 @@ compileIterator iterLabel (Just (idxVarID, Nothing)) expr = do
   A.setLabelPos iterLabel
   -- TODO: implement the iterator over the initial expression.
   A.emitOp IINC_1
-  A.emitOp $ SET_VAR idxVarID
-  A.emitOp $ SET_VAR idxVarID
+  A.emitOp $ SET_HEAP idxVarID
+  A.emitOp $ SET_HEAP idxVarID
 
 compileIterator iterLabel (Just (idxVarID, Just varID)) expr = do
   A.emitOp $ SET_VAR_IM1 idxVarID
   compileExpression expr
   A.setLabelPos iterLabel
   -- TODO: implement the iterator over the initial expression.
-  A.emitOp $ SET_VAR varID
-  A.emitOp $ GET_VAR idxVarID
+  A.emitOp $ SET_HEAP varID
+  A.emitOp $ GET_HEAP idxVarID
   A.emitOp IINC_1
-  A.emitOp $ SET_VAR idxVarID
+  A.emitOp $ SET_HEAP idxVarID
 
 
 compileExpression :: Expression -> CompileResult
-compileExpression (ExprLiteral typeInfo lit) = case lit of
+compileExpression (ExprLiteral lit) = case lit of
     LitString s -> do
       cteID <- A.addStringConstant s
       A.emitOp $ PUSH_CONST cteID
@@ -291,14 +312,14 @@ compileExpression (ExprLiteral typeInfo lit) = case lit of
     LitBool b -> A.emitOp $ PUSH_BOOL_IMM b
 
 
-compileExpression (ExprVariable typeInfo var@(Variable kind label)) = do
+compileExpression (ExprVariable var@(Variable kind label)) = do
   -- TODO: extract type expected from the variable.
   case kind of
     LocalK -> do
       varID <- registerVariable var (SimpleVT IntST)
-      A.emitOp $ GET_VAR varID
+      A.emitOp $ GET_HEAP varID
     MethodK -> do
-      A.emitOp $ GET_VAR 0
+      A.emitOp $ GET_HEAP 0
       lID <- A.addStringConstant label
       A.emitOp $ PUSH_CONST lID
       A.emitOp GET_FIELD
@@ -319,13 +340,13 @@ compileExpression (ExprVariable typeInfo var@(Variable kind label)) = do
 
 -- TODO: assess that the current context is always at the start of the heap.
 compileExpression ExprCurrentContext = do
-  A.emitOp $ GET_VAR 0
+  A.emitOp $ GET_HEAP 0
 
 
 compileExpression ExprParentContext = do
   contLabel <- A.newLabel
   lID <- A.addStringConstant "$parentCtx"
-  A.emitOp $ GET_VAR 0
+  A.emitOp $ GET_HEAP 0
   A.emitOp $ PUSH_CONST lID
   A.emitOp GET_FIELD
   A.emitOp $ JUMP_FALSE (LabelRef contLabel)
@@ -333,8 +354,8 @@ compileExpression ExprParentContext = do
   A.setLabelPos contLabel
 
 
-compileExpression (ExprMethodAccess typeInfo fields values) = do
-  A.emitOp $ GET_VAR 0
+compileExpression (ExprMethodAccess fields values) = do
+  A.emitOp $ GET_HEAP 0
   -- TODO: implement properly.
   mapM_ (\(Variable varKind varName) -> do
       lID <- A.addStringConstant varName
@@ -345,7 +366,7 @@ compileExpression (ExprMethodAccess typeInfo fields values) = do
   A.emitOp $ CALL_METHOD (fromIntegral $ length values)
 
 
-compileExpression (ExprFunctionCall typeInfo funcName args) = do
+compileExpression (ExprFunctionCall funcName args) = do
   functionID <- C.getFunctionSlot funcName
   rezA <- mapM compileExpression args
   case splitResults rezA of
@@ -354,7 +375,7 @@ compileExpression (ExprFunctionCall typeInfo funcName args) = do
       A.emitOp $ REDUCE functionID (fromIntegral $ length args)
 
 
-compileExpression (ExprPipeline typeInfo expr functions) = do
+compileExpression (ExprPipeline expr functions) = do
   compileExpression expr
   rezB <- mapM (\(FunctionApplication funcName args) -> do
       functionID <- C.getFunctionSlot funcName

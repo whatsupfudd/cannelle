@@ -11,10 +11,6 @@ import qualified Data.Vector as V
 import Cannelle.VM.Memory
 
 
-type VarID = Int32
-type FieldID = Int32
-type RegID = Int32
-
 data PcPtrT =
   I32Pc Int32
   | LabelRef Int32
@@ -23,23 +19,23 @@ data PcPtrT =
 data OpCode =
   NOP
   -- Heap access:
-  | SET_VAR VarID
-  | GET_VAR VarID
+  | SET_HEAP Int32
+  | GET_HEAP Int32
   | GET_FIELD
   | SET_FIELD
   -- Register access:
-  | SET_REG_BOOL RegID BoolM
-  | SET_REG_CHAR RegID CharM
-  | SET_REG_INT RegID IntM
-  | SET_REG_FLOAT RegID FloatM
-  | SET_REG_DOUBLE RegID DoubleM
-  | SET_REG_CONST RegID Int32
+  | SET_REG_BOOL Int32 BoolM
+  | SET_REG_CHAR Int32 CharM
+  | SET_REG_INT Int32 IntM
+  | SET_REG_FLOAT Int32 FloatM
+  | SET_REG_DOUBLE Int32 DoubleM
+  | SET_REG_CONST Int32 Int32
   -- Comparisons:
-  | CMP_BOOL RegID RegID
-  | CMP_CHAR RegID RegID
-  | CMP_INT RegID RegID
-  | CMP_FLOAT RegID RegID
-  | CMP_DOUBLE RegID RegID
+  | CMP_BOOL Int32 Int32
+  | CMP_CHAR Int32 Int32
+  | CMP_INT Int32 Int32
+  | CMP_FLOAT Int32 Int32
+  | CMP_DOUBLE Int32 Int32
   | CMP_BOOL_IMM
   | CMP_CHAR_IMM
   | CMP_INT_IMM Int32
@@ -48,27 +44,27 @@ data OpCode =
   -- PC ops:
   | JUMP PcPtrT
   | JUMP_REL PcPtrT
-  | JUMP_INDEX RegID
+  | JUMP_INDEX Int32
   | JUMP_TRUE PcPtrT
   | JUMP_FALSE PcPtrT
   -- Stack Access:
-  | PUSH_BOOL RegID
-  | PUSH_CHAR RegID
-  | PUSH_FLOAT RegID
-  | PUSH_DOUBLE RegID
-  | PUSH_CONST RegID
+  | PUSH_BOOL Int32
+  | PUSH_CHAR Int32
+  | PUSH_FLOAT Int32
+  | PUSH_DOUBLE Int32
+  | PUSH_CONST Int32
   | PUSH_BOOL_IMM BoolM
   | PUSH_CHAR_IMM CharM
   | PUSH_INT_IMM IntM
   | PUSH_FLOAT_IMM FloatM
   | PUSH_DOUBLE_IMM DoubleM
   | PUSH_CONST_IMM Int32    -- TODO: what is the difference between PUSH_CONST and PUSH_CONST_IMM?
-  | POP_BOOL RegID
-  | POP_CHAR RegID
-  | POP_INT RegID
-  | POP_FLOAT RegID
-  | POP_DOUBLE RegID
-  | POP_CONST RegID
+  | POP_BOOL Int32
+  | POP_CHAR Int32
+  | POP_INT Int32
+  | POP_FLOAT Int32
+  | POP_DOUBLE Int32
+  | POP_CONST Int32
   | POP_BOOL_VOID
   | POP_CHAR_VOID
   | POP_INT_VOID
@@ -78,8 +74,8 @@ data OpCode =
   -- Invoke:
   | REDUCE Int32 Int32    -- function ID + number of arguments pushed on stack.
   -- Heap management (save new heap ID to register):
-  | ALLOC_ABS IntM RegID
-  | ALLOC_REL RegID RegID
+  | ALLOC_ABS IntM Int32
+  | ALLOC_REL Int32 Int32
   -- Integer math:
   | IADD
   | ISUB
@@ -121,14 +117,35 @@ data OpCode =
   | REDUCE_DYN
   -- throw_err errID
   | THROW_ERR Int32
+  -- Array ops:
+  | DUP_SLICE
+  | NULL_SLICE
+  | HEAD_SLICE
+  | TAIL_SLICE
+  | HEAD_TAIL_SLICE
+  | NEW_SLICE
+  | SLICE_LENGTH
+  -- List ops:
+  | DUP_LIST
+  | NULL_LIST
+  | NEW_LIST
+  | CONS_LIST
+  | SNOC_LIST
+  | HEAD_LIST
+  | TAIL_LIST
+  | CONCAT_LIST
+  | SINGLETON_LIST
+  | LIST_LENGTH
+  | SWAP
+  | POP_1
   deriving (Show)
 
 
 instance Enum OpCode where
   fromEnum :: OpCode -> Int
   fromEnum NOP = 0
-  fromEnum (SET_VAR _) = 1
-  fromEnum (GET_VAR _) = 2
+  fromEnum (SET_HEAP _) = 1
+  fromEnum (GET_HEAP _) = 2
   fromEnum GET_FIELD = 3
   fromEnum SET_FIELD = 4
   fromEnum (SET_REG_BOOL _ _) = 5
@@ -211,12 +228,31 @@ instance Enum OpCode where
   fromEnum (CALL_METHOD _) = 82
   fromEnum REDUCE_DYN = 83
   fromEnum (THROW_ERR _) = 84
+  fromEnum DUP_SLICE = 85
+  fromEnum NULL_SLICE = 86
+  fromEnum HEAD_SLICE = 87
+  fromEnum TAIL_SLICE = 88
+  fromEnum HEAD_TAIL_SLICE = 89
+  fromEnum NEW_SLICE = 90
+  fromEnum SLICE_LENGTH = 91
+  fromEnum DUP_LIST = 92
+  fromEnum NULL_LIST = 93
+  fromEnum NEW_LIST = 94
+  fromEnum CONS_LIST = 95
+  fromEnum SNOC_LIST = 96
+  fromEnum HEAD_LIST = 97
+  fromEnum TAIL_LIST = 98
+  fromEnum CONCAT_LIST = 99
+  fromEnum SINGLETON_LIST = 100
+  fromEnum LIST_LENGTH = 101
+  fromEnum SWAP = 102
+  fromEnum POP_1 = 103
   fromEnum a = error $ "fromEnum: bad argument" <> show a
 
   toEnum :: Int -> OpCode
   toEnum 0 = NOP
-  toEnum 1 = SET_VAR 0
-  toEnum 2 = GET_VAR 0
+  toEnum 1 = SET_HEAP 0
+  toEnum 2 = GET_HEAP 0
   toEnum 3 = GET_FIELD
   toEnum 4 = SET_FIELD
   toEnum 5 = SET_REG_BOOL 0 False
@@ -299,12 +335,31 @@ instance Enum OpCode where
   toEnum 82 = CALL_METHOD 0
   toEnum 83 = REDUCE_DYN
   toEnum 84 = THROW_ERR 0
+  toEnum 85 = DUP_SLICE
+  toEnum 86 = NULL_SLICE
+  toEnum 87 = HEAD_SLICE
+  toEnum 88 = TAIL_SLICE
+  toEnum 89 = HEAD_TAIL_SLICE
+  toEnum 90 = NEW_SLICE
+  toEnum 91 = SLICE_LENGTH
+  toEnum 92 = DUP_LIST
+  toEnum 93 = NULL_LIST
+  toEnum 94 = NEW_LIST
+  toEnum 95 = CONS_LIST
+  toEnum 96 = SNOC_LIST
+  toEnum 97 = HEAD_LIST
+  toEnum 98 = TAIL_LIST
+  toEnum 99 = CONCAT_LIST
+  toEnum 100 = SINGLETON_LIST
+  toEnum 101 = LIST_LENGTH
+  toEnum 102 = SWAP
+  toEnum 103 = POP_1
   toEnum _ = error "toEnum: bad argument"
 
 opParCount :: OpCode -> Int
 opParCount NOP = 0
-opParCount (SET_VAR _) = 1
-opParCount (GET_VAR _) = 1
+opParCount (SET_HEAP _) = 1
+opParCount (GET_HEAP _) = 1
 opParCount GET_FIELD = 0
 opParCount SET_FIELD = 0
 opParCount (SET_REG_BOOL _ _) = 2
@@ -386,11 +441,30 @@ opParCount (SET_VAR_IM1 _) = 1
 opParCount DUP_1 = 0
 opParCount (CALL_METHOD _) = 1
 opParCount REDUCE_DYN = 0
+opParCount DUP_SLICE = 0
+opParCount NULL_SLICE = 0
+opParCount HEAD_SLICE = 0
+opParCount TAIL_SLICE = 0
+opParCount HEAD_TAIL_SLICE = 0
+opParCount NEW_SLICE = 0
+opParCount SLICE_LENGTH = 0
+opParCount DUP_LIST = 0
+opParCount NULL_LIST = 0
+opParCount NEW_LIST = 0
+opParCount CONS_LIST = 0
+opParCount SNOC_LIST = 0
+opParCount HEAD_LIST = 0
+opParCount TAIL_LIST = 0
+opParCount CONCAT_LIST = 0
+opParCount SINGLETON_LIST = 0
+opParCount LIST_LENGTH = 0
+opParCount SWAP = 0
+opParCount POP_1 = 0
 
 toInstr :: OpCode -> [Int32]
 toInstr NOP = [0]
-toInstr (SET_VAR a1) = [1, a1]
-toInstr (GET_VAR a1) = [2, a1]
+toInstr (SET_HEAP a1) = [1, a1]
+toInstr (GET_HEAP a1) = [2, a1]
 toInstr GET_FIELD = [3]
 toInstr SET_FIELD = [4]
 toInstr (SET_REG_BOOL a1 a2) = [5, a1, if a2 then 1 else 0]
@@ -472,6 +546,25 @@ toInstr (SET_VAR_IM1 a1) = [80, a1]
 toInstr DUP_1 = [81]
 toInstr (CALL_METHOD a1) = [82, a1]
 toInstr REDUCE_DYN = [83]
+toInstr DUP_SLICE = [85]
+toInstr NULL_SLICE = [86]
+toInstr HEAD_SLICE = [87]
+toInstr TAIL_SLICE = [88]
+toInstr HEAD_TAIL_SLICE = [89]
+toInstr NEW_SLICE = [90]
+toInstr SLICE_LENGTH = [91]
+toInstr DUP_LIST = [92]
+toInstr NULL_LIST = [93]
+toInstr NEW_LIST = [94]
+toInstr CONS_LIST = [95]
+toInstr SNOC_LIST = [96]
+toInstr HEAD_LIST = [97]
+toInstr TAIL_LIST = [98]
+toInstr CONCAT_LIST = [99]
+toInstr SINGLETON_LIST = [100]
+toInstr LIST_LENGTH = [101]
+toInstr SWAP = [102]
+toInstr POP_1 = [103]
 toInstr a = error $ "fromEnum: bad argument" <> show a
 
 

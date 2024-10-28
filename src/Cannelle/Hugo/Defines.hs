@@ -76,8 +76,9 @@ impModules = Mp.fromList [
       -- AbsLangURL, AbsURL, Anchorize, JoinPath, Parse, Ref, RelLangURL, RelRef, RelURL, URLize.
   ]
 
-impRevModules :: Mp.Map MainText [(Int32, Maybe Int32)]
-impRevModules = Mp.foldlWithKey (\acc modId (modName, mbParentId) -> Mp.insertWith (<>) modName [(modId, mbParentId)] acc) Mp.empty impModules
+impRevModules :: Mp.Map Int32 (MainText, Maybe Int32) -> Mp.Map MainText [(Int32, Maybe Int32)]
+impRevModules =
+    Mp.foldlWithKey (\acc modId (modName, mbParentId) -> Mp.insertWith (<>) modName [(modId, mbParentId)] acc) Mp.empty
 
 
 -- Warning: Hugo's functions are polymorphic, the right function is selected at runtime!

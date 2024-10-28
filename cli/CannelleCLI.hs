@@ -44,10 +44,6 @@ import Cannelle.Jinja.Html
 import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourceLine, sourceColumn, parseGingerFile, parseGinger, formatParserError)
 
 import qualified Cannelle.Hugo.Parse as Hg
-import qualified Cannelle.Hugo.Compiler as Hg
-import qualified Cannelle.Hugo.Assembler as Hg
-import qualified Cannelle.Hugo.Types as Ht
-import Cannelle.Hugo.Types (CompContext (..))
 
 import qualified Cannelle.Fuddle.Parser as Fd
 
@@ -84,7 +80,6 @@ loadTemplate tplSrc = do
     (tpl, src) <- case tplSrc of
         TemplateFromFile fn -> (,) <$> parseGingerFile resolve fn <*> return Nothing
         TemplateFromStdin -> getContents >>= \s -> (,) <$> parseGinger resolve Nothing s <*> return (Just s)
-
     case tpl of
         Left err -> do
             tplSource <-
@@ -131,27 +126,19 @@ runJinja tplSrc dataSrc = do
 
 runHugo :: TemplateSource -> DataSource -> Maybe OutputSpec -> IO ()
 runHugo tplSrc dataSrc mbOut = do
-  rezA <- case tplSrc of
+  case tplSrc of
     TemplateFromFile fn -> do
-      src <- loadFileMaybe fn
-      case src of
-        Just string -> do
-          rezB <- Hg.parseTemplateSource (Just fn) (encodeUtf8 . pack $ string)
-          case rezB of
-            Left errMsg ->
-              pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
-            Right templateElements ->
-              pure $ Hg.convertElements templateElements
-        Nothing ->
-          pure . Left $ "@[runHugo] Could not read file " <> fn
+      rez <- Hg.parse fn (mbOut >>= \(OutputSpec outPath) -> Just outPath)
+      case rez of
+        Left err -> putStrLn err
+        Right () -> pure ()
     TemplateFromStdin -> do
-      text <-encodeUtf8 . pack <$> getContents
-      rezB <- Hg.parseTemplateSource Nothing text
-      case rezB of
-        Left errMsg ->
-          pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
-        Right templateElements ->
-          pure $ Hg.convertElements templateElements
+      text <- encodeUtf8 . pack <$> getContents
+      let
+        parse = Hg.parseBString text
+      pure ()
+
+{-
   case rezA of
     Left errMsg -> putStrLn errMsg
     Right statements -> do
@@ -197,6 +184,7 @@ runHugo tplSrc dataSrc mbOut = do
             Left err -> error err
             Right ops -> ops
     }
+-}
 
 
 runPHP :: TemplateSource -> DataSource -> IO ()
