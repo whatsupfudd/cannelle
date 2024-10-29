@@ -11,7 +11,7 @@ import Data.Int (Int32)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List as L
 import qualified Data.Map as Mp
-import Data.Maybe (maybe, fromJust)
+import Data.Maybe (maybe, fromJust, fromMaybe)
 import Data.Text (Text, pack)
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -56,7 +56,6 @@ addExpr expr = do
 
 addLiteral :: Literal -> State FullCompContext (Either CompError FExpression)
 addLiteral literal = do
-  ctx <- get
   (fLiteral, exprType) <- case literal of
       LitString str -> do
         cteID <- A.addStringConstant str
@@ -69,6 +68,7 @@ addLiteral literal = do
           pure (FLiteral { lType = IntHT, lValue = IntVal (round n) }, ResolvedTI IntHT)
       LitBool b ->
         pure (FLiteral { lType = BoolHT, lValue = IntVal (if b then 1 else 0) }, ResolvedTI BoolHT)
+  ctx <- get
   let
     newExpr = FExpression { uid = ctx.uidCounter, ae = LiteralEC fLiteral, lineInfo = fakePos, typeInfo = exprType }
   put ctx { uidCounter = succ ctx.uidCounter }
@@ -83,18 +83,10 @@ initHugoCompileCtxt = HugoCompileCtxt {
   , blocks = Mp.empty
 }
 
+
 showHugoCtxt :: FullCompContext -> String
 showHugoCtxt = showCompContext
 
-
--- TODO: implement.
-registerVariable :: Variable -> CompType -> State FullCompContext Int32
-registerVariable (Variable varKind label) varType = pure 1
--- VarKind = LocalK ($aVar) | MethodK (.aMethod) | LocalMethodK ($.aMethod)
-
--- TODO: implement.
-dereferVariable :: Variable -> State FullCompContext (Maybe Int32)
-dereferVariable label = pure Nothing
 
 -- TODO: implement.
 registerBlock :: MainText -> State FullCompContext Int32
@@ -104,9 +96,16 @@ registerBlock label = pure 0
 getInternalTemplate :: MainText -> State FullCompContext Int32
 getInternalTemplate label = pure 0
 
--- TODO: implement.
+
 getExternalTemplate :: MainText -> State FullCompContext Int32
-getExternalTemplate label = pure 0
+getExternalTemplate label = do
+  labelID <- A.addStringConstant label
+  modify $ \ctx ->
+    let
+      updHugoCtxt = ctx.subContext { externalTemplates = Mp.insert label labelID ctx.subContext.externalTemplates }
+    in
+    ctx { subContext = updHugoCtxt }
+  pure labelID
 
 
 {- TODO: registerWithContext creates a heap position to store the context at h[0], then pushes the context in the expr to h[0], and then reverts the value from h[p] back to h[0] at the end of the with statement.
@@ -126,7 +125,12 @@ compPhaseA funcName stmts =
     (rezA, finalState) = runState (mapM compileRaw stmts) newCtx
   in
   case splitResults rezA of
-    (Nothing, compStmts) -> Right (finalState, compStmts)
+    (Nothing, compStmts) ->
+      let
+        hFct :| tS = finalState.curFctDef
+        updFct = hFct { fStatements = compStmts }
+      in
+      Right (finalState { curFctDef = updFct :| tS }, compStmts)
     (Just errs, _) -> Left errs
 
 
@@ -134,6 +138,14 @@ compileRaw :: RawStatement -> StmtCompRez
 compileRaw (VerbatimST text) = do
   cteID <- A.addVerbatimConstant text
   addStmt (VerbatimFS cteID)
+
+
+compileRaw (ExpressionST expr) = do
+  eiExpr <- compileExprRaw expr
+  case eiExpr of
+    Left err -> pure $ Left err
+    Right nExpr -> do
+      addStmt (ExpressionFS nExpr)
 
 
 compileRaw (IfST condExpr thenStmt elseStmt) = do
@@ -157,33 +169,43 @@ compileRaw (IfST condExpr thenStmt elseStmt) = do
 
 
 compileRaw (RangeST mbVars expr thenStmt elseStmt) = do
-  mbValIDs <- case mbVars of
+  eiValIDs <- case mbVars of
     Just (RangeVars valVar mbIdxVar) -> do
       -- TODO: extract type expected from the variable.
-      valID <- registerVariable valVar UnknownVT
-      mbIdxID <- case mbIdxVar of
-        Nothing -> pure Nothing
-        Just aVar -> Just <$> registerVariable aVar (SimpleVT IntST)
-      pure $ Just (valID, mbIdxID)
-    Nothing -> pure Nothing
-  -- TODO: figure out how to handle the iterator's implicit looping index variable.
-  eiExpr <- compileExprRaw expr
-  case eiExpr of
-    Left err -> pure $ Left err
-    Right nExpr -> do
-      eiThenStmt <- compileRaw thenStmt
-      case eiThenStmt of
+      ieValID <- C.registerVariable valVar UnknownVT
+      case ieValID of
         Left err -> pure $ Left err
-        Right nThenStmt -> do
-          case elseStmt of
-            NoOpST ->
-              addStmt (RangeFS mbValIDs nExpr nThenStmt Nothing)
-            _ -> do
-              eiElseStmt <- compileRaw elseStmt
-              case eiElseStmt of
-                Left err -> pure $ Left err
-                Right nElseStmt ->
-                  addStmt (RangeFS mbValIDs nExpr nThenStmt (Just nElseStmt))
+        Right valID -> do
+          eiIdxID <- case mbIdxVar of
+            Nothing -> pure $ Right Nothing
+            Just aVar -> do
+              ieIdxID <- C.registerVariable aVar (SimpleVT IntST)
+              pure $ Just <$> ieIdxID
+          case eiIdxID of
+            Left err -> pure $ Left err
+            Right mbIdxID -> pure . Right $ Just(valID, mbIdxID)
+    Nothing -> pure $ Right Nothing
+  -- TODO: figure out how to handle the iterator's implicit looping index variable.
+  case eiValIDs of
+    Left err -> pure $ Left err
+    Right mbVarIDs -> do
+      eiExpr <- compileExprRaw expr
+      case eiExpr of
+        Left err -> pure $ Left err
+        Right nExpr -> do
+          eiThenStmt <- compileRaw thenStmt
+          case eiThenStmt of
+            Left err -> pure $ Left err
+            Right nThenStmt -> do
+              case elseStmt of
+                NoOpST ->
+                  addStmt (RangeFS mbVarIDs nExpr nThenStmt Nothing)
+                _ -> do
+                  eiElseStmt <- compileRaw elseStmt
+                  case eiElseStmt of
+                    Left err -> pure $ Left err
+                    Right nElseStmt ->
+                      addStmt (RangeFS mbVarIDs nExpr nThenStmt (Just nElseStmt))
 
 
 compileRaw (WithST expr thenStmt elseStmt) = do
@@ -207,52 +229,26 @@ compileRaw (WithST expr thenStmt elseStmt) = do
                 Right nElseStmt ->
                   addStmt (WithFS withCtxtID nExpr nThenStmt (Just nElseStmt))
 
-
-compileRaw (ReturnST expr) = do
-  eiExpr <- compileExprRaw expr
-  case eiExpr of
-    Left err -> pure $ Left err
-    Right nExpr -> do
-      addStmt (ReturnFS nExpr)
-
-
-compileRaw ContinueST = do
-  addStmt ContinueFS
-
-
-compileRaw BreakST = do
-  addStmt BreakFS
-
-
-compileRaw (ExpressionST expr) = do
-  eiExpr <- compileExprRaw expr
-  case eiExpr of
-    Left err -> pure $ Left err
-    Right nExpr -> do
-      addStmt (ExpressionFS nExpr)
-
-
+-- Creates a new function.
 compileRaw (DefineST label body) = do
   eiLabelID <- C.pushFunctionComp label
   case eiLabelID of
     Left err -> pure $ Left err
     Right labelID -> do
       eiBody <- compileRaw body
-      rezA <- case eiBody of
-        Left err -> pure $ Left err
+      case eiBody of
+        Left err -> do
+          C.popFunctionVoid
+          pure $ Left err
         Right nBody ->
           let
             mbReturnSize = scanForReturns nBody
-          in
-          case mbReturnSize of
-            Nothing ->
-              pure $ Left $ CompError [(0, "Define block does not return a value.")]
-            Just returnSize ->
-              addStmt (DefineFS labelID returnSize nBody)
-      C.popFunctionComp
-      pure rezA
+          in do
+          C.popFunctionComp labelID (fromMaybe 0 mbReturnSize) [nBody]
+          addStmt NoOpFS
 
 
+-- Creates a new function, and then runs it in place.
 compileRaw (BlockST label contextExpr stmt) = do
   eilabelID <- C.pushFunctionComp label
   case eilabelID of
@@ -261,16 +257,19 @@ compileRaw (BlockST label contextExpr stmt) = do
       -- TODO: figure out how to implement the local context variable.
       localCtxt <- registerBlock label
       eiExpr <- compileExprRaw contextExpr
-      rezA <- case eiExpr of
-          Left err -> pure $ Left err
+      case eiExpr of
+          Left err -> do
+            C.popFunctionVoid
+            pure $ Left err
           Right nExpr -> do
             eiStmt <- compileRaw stmt
             case eiStmt of
-              Left err -> pure $ Left err
-              Right nStmt -> do
-                addStmt (BlockFS labelID localCtxt nExpr nStmt)
-      C.popFunctionComp
-      pure rezA
+              Left err -> do
+                C.popFunctionVoid
+                pure $ Left err
+              Right nBody -> do
+                C.popFunctionComp labelID 0 [nBody]
+                addStmt (BlockFS labelID localCtxt nExpr nBody)
 
 
 compileRaw (IncludeST label expr) = do
@@ -291,11 +290,45 @@ compileRaw (PartialST label expr) = do
       addStmt (PartialFS templateID nExpr)
 
 
+compileRaw (ReturnST expr) = do
+  eiExpr <- compileExprRaw expr
+  case eiExpr of
+    Left err -> pure $ Left err
+    Right nExpr -> do
+      addStmt (ReturnFS nExpr)
+
+
+compileRaw (VarAssignST asngKind (Variable varKind label) expr) = do
+  eiExpr <- compileExprRaw expr
+  case eiExpr of
+    Left err -> pure $ Left err
+    Right nExpr -> do
+      eiVarID <-case asngKind of
+        DefinitionK -> do
+          C.registerVariable (Variable varKind label) (SimpleVT IntST)
+        AssignK -> do
+          rez <- C.dereferVariable (Variable varKind label)
+          case rez of
+            Nothing -> pure . Left $ CompError [(0, "Variable " <> show label <> " not defined.")]
+            Just varID -> pure $ Right varID      
+      case eiVarID of
+        Left err -> pure $ Left err
+        Right varID -> addStmt (VarAssignFS asngKind varID nExpr)
+
+
 compileRaw (ListST stmts) = do
   rezA <- mapM compileRaw stmts
   case splitResults rezA of
     (Just err, _) -> pure $ Left err
     (Nothing, compStmts) -> addStmt (ListFS compStmts)
+
+
+compileRaw ContinueST = do
+  addStmt ContinueFS
+
+
+compileRaw BreakST = do
+  addStmt BreakFS
 
 
 compileRaw NoOpST = addStmt NoOpFS
@@ -358,8 +391,10 @@ compileExprRaw (ExprVariable var@(Variable kind label)) = do
   -- TODO: extract type expected from the variable.
   case kind of
     LocalK -> do
-      varID <- registerVariable var (SimpleVT IntST)
-      addExpr (VariableEC kind varID)
+      mbVarID <- C.dereferVariable var
+      case mbVarID of
+        Nothing -> pure . Left $ CompError [(0, "Variable " <> show label <> " not defined.")]
+        Just varID -> addExpr (VariableEC kind varID)
     MethodK -> do
       lID <- A.addStringConstant label
       addExpr (VariableEC kind lID)

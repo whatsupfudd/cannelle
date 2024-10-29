@@ -24,7 +24,7 @@ emitOp instr = do
   ctx <- get
   let
     curFct :| tailFcts = ctx.curFctDef
-    updFct = curFct { opcodes = curFct.opcodes <> V.fromList [instr] }
+    updFct = curFct { opcodes = V.snoc curFct.opcodes instr }
   put ctx { curFctDef = updFct :| tailFcts }
   pure $ Right ()
 
@@ -90,14 +90,14 @@ addTypedConstant :: (Show sc) => CompConstant -> MainText -> State (CompContext 
 addTypedConstant newConst md5Hash = do
     ctx <- get
     let
-      existing = Mp.lookup md5Hash ctx.constants
+      existing = Mp.lookup md5Hash ctx.textConstants
     case existing of
       Just (value, index) -> pure index
       Nothing ->
         let
-          index = fromIntegral $ Mp.size ctx.constants
+          index = fromIntegral $ Mp.size ctx.textConstants
         in do
-        put ctx { constants = Mp.insert md5Hash (newConst, index) ctx.constants }
+        put ctx { textConstants = Mp.insert md5Hash (newConst, index) ctx.textConstants }
         pure index
 
 
@@ -168,9 +168,9 @@ derefLabels opCodes symbLabels =
           Right newBytePos -> Right ((label, fromIntegral newBytePos) : accum, newBytePos, curOpCount + sLength)
 
 
-convertCompCteToTempl :: CompConstant -> ConstantValue
-convertCompCteToTempl (IntC a) = IntCte (fromIntegral a)
-convertCompCteToTempl (DoubleC a) = DoubleCte (realToFrac a)
-convertCompCteToTempl (BoolC a) = IntCte (if a then 1 else 0)
-convertCompCteToTempl (StringC a) = StringCte a
-convertCompCteToTempl (VerbatimC a) = VerbatimCte False a
+compCteToFUnit :: CompConstant -> ConstantValue
+compCteToFUnit (IntC a) = IntCte (fromIntegral a)
+compCteToFUnit (DoubleC a) = DoubleCte (realToFrac a)
+compCteToFUnit (BoolC a) = IntCte (if a then 1 else 0)
+compCteToFUnit (StringC a) = StringCte a
+compCteToFUnit (VerbatimC a) = VerbatimCte False a

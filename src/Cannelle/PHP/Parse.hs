@@ -20,7 +20,6 @@ import TreeSitter.PHP ( tree_sitter_php )
 import TreeSitter.Node ( nodeStartPoint ,ts_node_copy_child_nodes, Node(..)
               , TSPoint(TSPoint, pointRow, pointColumn) )
 
-import Cannelle.Template.Types (TemplateDef (..))
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.PHP.NeParser (testScannerB)
 import Cannelle.PHP.Print (printPhpContext, printNode)

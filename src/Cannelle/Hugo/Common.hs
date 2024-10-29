@@ -15,27 +15,29 @@ import qualified Crypto.Hash.MD5 as Cr
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.VM.Context (MainText)
 import Cannelle.Hugo.Defines (impRevModules)
+import Cannelle.Hugo.Assembler (addStringConstant)
+import Cannelle.Hugo.AST (Variable (..), FStatement (..))
 import Cannelle.Hugo.Types
 
 
 initCompContext :: (Show subCtxt) => MainText -> subCtxt -> Mp.Map Int32 (MainText, Maybe Int32) -> Mp.Map MainText [(FctDefComp, Int32)] -> CompContext subCtxt
 initCompContext funcLabel subCtxt impModules impFcts = CompContext {
-  constants = Mp.empty
+  textConstants = Mp.empty
   , doubleConstants = Mp.empty
   , i64Constants = Mp.empty
   , functions = Mp.empty
   , hasFailed = Nothing
-  , unitCounter = 0
   , uidCounter = 0
   , fctCounter = 1
   , spitFctID = 0
   , curFctDef = initCompFunction funcLabel 0 :| []
   , subContext = subCtxt
+  , functionSlots = Mp.empty
+  , importedFcts = impFcts
+  , phaseBFct = []
+  {--
   , moduleMap = impModules
   , revModuleMap = impRevModules impModules
-  , importedFcts = impFcts
-  , functionSlots = Mp.empty
-  {--
   , functionAlias = Mp.empty
   , appliedFcts = Mp.empty
   --}
@@ -49,11 +51,13 @@ initCompFunction aLabel fctID = CompFunction {
     , opcodes = V.empty
     , labels = Mp.empty
     , iterLabels = []
+    , heapStack = initHeapDef :| []
+    , fStatements = []
+    , returnSize = 0
     {--
     , returnType = SimpleVT IntST
     , references = Mp.empty
     , args = []
-    , heapDef = initHeapDef
     , varAssignments = Mp.empty
     , symbols = Mp.empty
     --}
@@ -69,41 +73,36 @@ initHeapDef =
     Mp.singleton "$local" (0, parentType)
 
 
-{- Being moved to the Assembler module.
-newLabel :: (Show sc) => State (CompContext sc) Int32
-newLabel = do
+registerVariable :: Variable -> CompType -> State FullCompContext (Either CompError Int32)
+registerVariable (Variable varKind label) varType = do
   ctx <- get
   let
-    curFct :| tailFcts = ctx.curFctDef
-    labelID = fromIntegral $ Mp.size curFct.labels
-    newFctDef = curFct { labels = Mp.insert labelID Nothing curFct.labels }
-  put ctx { curFctDef = newFctDef :| tailFcts }
-  pure labelID
+    fctHead :| fctTail = ctx.curFctDef
+    headStack :| tailStack = fctHead.heapStack
+    mbHeapID = Mp.lookup label headStack
+  case mbHeapID of
+    Just heapID ->
+      pure $ Left $ CompError [(0, "Variable " <> show label <> " already defined.")]
+    Nothing -> do
+      let
+        newHeapID = fromIntegral $ Mp.size headStack
+        newHeap = Mp.insert label (newHeapID, varType) headStack
+        newFctHead = fctHead { heapStack = newHeap :| tailStack }
+      put ctx { curFctDef = newFctHead :| fctTail }
+      pure $ Right newHeapID
+-- VarKind = LocalK ($aVar) | MethodK (.aMethod) | LocalMethodK ($.aMethod)
 
 
-addStringConstant :: (Show sc) => MainText -> State (CompContext sc) Int32
-addStringConstant newConst =
-  addTypedConstant (StringC newConst) $ Cr.hash newConst
-
-addVerbatimConstant :: (Show sc) => MainText -> State (CompContext sc) Int32
-addVerbatimConstant newConst =
-  addTypedConstant (VerbatimC newConst) $ Cr.hash newConst
-
-
-addTypedConstant :: (Show sc) => CompConstant -> MainText -> State (CompContext sc) Int32
-addTypedConstant newConst md5Hash = do
-    ctx <- get
-    let
-      existing = Mp.lookup md5Hash ctx.constants
-    case existing of
-      Just (value, index) -> pure index
-      Nothing ->
-        let
-          index = fromIntegral $ Mp.size ctx.constants
-        in do
-        put ctx { constants = Mp.insert md5Hash (newConst, index) ctx.constants }
-        pure index
--}
+dereferVariable :: Variable -> State FullCompContext (Maybe Int32)
+dereferVariable (Variable varKind label) = do
+  ctx <- get
+  let
+    fctHead :| fctTail = ctx.curFctDef
+    headStack :| tailStack = fctHead.heapStack
+    mbHeapSlot = Mp.lookup label headStack
+  case mbHeapSlot of
+    Just (heapID, aType) -> pure $ Just heapID
+    Nothing -> pure Nothing
 
 
 -- TODO: refactor:
@@ -178,8 +177,10 @@ pushFunctionComp label = do
   ctx <- get
   -- TODO: check that the label exists in the functions map.
   -- TODO: push the function on the phase A stack (raw to referenced statements).
-  put ctx { curFctDef = initCompFunction label ctx.fctCounter <| ctx.curFctDef, fctCounter = succ ctx.fctCounter }
-  pure . Right $ fromIntegral $ length ctx.curFctDef
+  let
+    funcID = ctx.fctCounter
+  put ctx { curFctDef = initCompFunction label funcID <| ctx.curFctDef, fctCounter = succ funcID }
+  pure . Right $ fromIntegral funcID
 
 
 pushFunctionV2 :: (Show sc) => Int32 -> GenCompileResult sc Int32
@@ -191,18 +192,29 @@ pushFunctionV2 fctID = do
 
 
 -- TODO: one pop fct for phase A, one for phase B.
-popFunctionComp :: (Show sc) => GenCompileResult sc ()
-popFunctionComp = do
+popFunctionComp :: (Show sc) => Int32 -> Int32 -> [ FStatement ] -> GenCompileResult sc ()
+popFunctionComp labelID returnSize body = do
   ctx <- get
   case ctx.curFctDef of
     curFct :| (hTail : tTail) ->
       let
         curFct :| tailFcts = ctx.curFctDef
+        updCurFct = curFct { fStatements = body, returnSize = returnSize }
         newFctID = fromIntegral $ Mp.size ctx.functions
       in do
-      put ctx { curFctDef = hTail :| tTail, functions = Mp.insert curFct.name (curFct, newFctID) ctx.functions }
+      put ctx { curFctDef = hTail :| tTail, functions = Mp.insert updCurFct.name (updCurFct, newFctID) ctx.functions }
       pure $ Right ()
     _ -> pure $ Left $ CompError [(0, "Closing function comp context on an empty list.")]
+
+
+popFunctionVoid :: (Show sc) => GenCompileResult sc ()
+popFunctionVoid = do
+  ctx <- get
+  case ctx.curFctDef of
+    curFct :| [] -> pure $ Left $ CompError [(0, "Closing function comp context on an empty list.")]
+    curFct :| (hTail : tTail) -> do
+      put ctx { curFctDef = hTail :| tTail }
+      pure $ Right ()
 
 
 -- TODO: implement.

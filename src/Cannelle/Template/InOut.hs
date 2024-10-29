@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 module Cannelle.Template.InOut where
 
 import qualified Data.Binary.Get as Bg
@@ -10,7 +11,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 
 import Cannelle.VM.Context (MainText)
-import Cannelle.VM.OpCodes (dissassemble)
+import Cannelle.VM.OpCodes (dissassemble, showOpcodesWithLabels)
 import Cannelle.Template.Types
 
 
@@ -22,8 +23,8 @@ data TplHeader = TplHeader {
   }
 
 
-showTemplateDef :: TemplateDef -> String
-showTemplateDef tmpl = "TemplateDef:\n"
+showFileUnit :: FileUnit -> String
+showFileUnit tmpl = "FileUnit:\n"
   <> "name: " <> show tmpl.name <> "\n"
   <> "description: " <> show tmpl.description <> "\n"
   <> "constants:\n" <> concatMap (\(c, idx) -> show idx <> ": " <> showConstantTpl c <> "\n") (zip (V.toList tmpl.constants) [0..]) <> "\n"
@@ -31,12 +32,18 @@ showTemplateDef tmpl = "TemplateDef:\n"
   <> "routing: " <> show tmpl.routing <> "\n"
   <> "imports: " <> show tmpl.imports <> "\n"
 
+
 showFunctionDef :: FunctionDefTpl -> String
-showFunctionDef function = "FunctionDefTpl:\n"
+showFunctionDef function = 
+  let
+    revLabels = Mp.foldrWithKey (\k mbV acc -> case mbV of Nothing -> acc; Just v -> Mp.insertWith (<>) v [k] acc) (Mp.empty :: Mp.Map Int32 [Int32]) function.labels
+  in
+  "FunctionDefTpl:\n"
   <> "name: " <> show function.name <> "\n"
   <> "args: " <> show function.args <> "\n"
   <> "returnType: " <> show function.returnType <> "\n"
-  <> "ops:\n" <> dissassemble function.ops <> "\n"
+  <> "ops:\n" <> showOpcodesWithLabels revLabels function.ops <> "\n"
+
 
 showConstantTpl :: ConstantTpl -> String
 showConstantTpl (StringP str) = "StringP: " <> show str
@@ -50,34 +57,34 @@ showConstantTpl (StructP _ struct) = "StructP: " <> show struct
 cantMaginNbr :: Int32
 cantMaginNbr = 0x043414e54
 
-read :: FilePath -> IO (Either String TemplateDef)
+read :: FilePath -> IO (Either String FileUnit)
 read path = do
   content <- Bsl.readFile path
-  pure $ readTemplateDef content
+  pure $ readFileUnit content
 
-write :: FilePath -> TemplateDef -> IO ()
+write :: FilePath -> FileUnit -> IO ()
 write filePath template = do
-  let content = Bp.runPut (putTemplateDef template)
+  let content = Bp.runPut (putFileUnit template)
   Bsl.writeFile filePath content
 
 
-readTemplateDef :: Bsl.ByteString -> Either String TemplateDef
-readTemplateDef content =
+readFileUnit :: Bsl.ByteString -> Either String FileUnit
+readFileUnit content =
   let
-    rezA = Bg.runGetOrFail getTemplateDef content
+    rezA = Bg.runGetOrFail getFileUnit content
   in
   case rezA of
-    Left (_, _, err) -> Left $ "@[readTemplateDef] runGetOrFail err: " <> err
+    Left (_, _, err) -> Left $ "@[readFileUnit] runGetOrFail err: " <> err
     Right (_, _, templateItem) ->
       Right templateItem
 
 
-writeTemplateDef :: TemplateDef -> Bsl.ByteString
-writeTemplateDef template = Bp.runPut (putTemplateDef template)
+writeFileUnit :: FileUnit -> Bsl.ByteString
+writeFileUnit template = Bp.runPut (putFileUnit template)
 
 
-putTemplateDef :: TemplateDef -> Bp.Put
-putTemplateDef template =
+putFileUnit :: FileUnit -> Bp.Put
+putFileUnit template =
   let
     header = TplHeader {
       magic = cantMaginNbr
@@ -100,15 +107,15 @@ putConstantsV1 constants = do
   mapM_ putAConstantV1 constants
 
 
-getTemplateDef :: Bg.Get TemplateDef
-getTemplateDef = do
+getFileUnit :: Bg.Get FileUnit
+getFileUnit = do
   header <- getTemplateHeader
   case header.magic of
     cantMaginNbr ->
       case header.version of
         1 -> do
           constants <- getConstantsV1
-          TemplateDef (Just header.name) Nothing constants
+          FileUnit (Just header.name) Nothing constants
             <$> getDefinitionsV1 constants
             <*> getRoutingV1
             <*> getImportsV1
@@ -242,7 +249,7 @@ getAFunctionV1 constants = Bg.label "getAFunctionV1" $ do
 
   case (name, returnType) of
     (Just name, Just typeDef) -> do
-      pure $ FunctionDefTpl name args typeDef (V.fromList ops)
+      pure $ FunctionDefTpl name args typeDef (V.fromList ops) V.empty Mp.empty  -- last 2 params for debugging: ops, labels.
     _ -> fail "@[getAFunctionV1] Error in name/return type encoding."
 
 
@@ -260,8 +267,8 @@ putAFunctionV1 constants function = do
 
   -- TODO: encode the args.
   -- The opcodes:
-  Bp.putInt32be (fromIntegral $ V.length function.ops)
-  mapM_ (Bp.putInt32be . fromIntegral) function.ops
+  Bp.putInt32be (fromIntegral $ V.length function.bytecode)
+  mapM_ (Bp.putInt32be . fromIntegral) function.bytecode
 
 
 putArgDef :: V.Vector ConstantTpl -> (MainText, TypeDef) -> Bp.Put

@@ -13,7 +13,7 @@ printStatements stmts = do
     (h : rest) -> do
       putStrLn $ "\t" <> showAStmt 1 h
       mapM_ (\s -> putStrLn $ "\t, " <> showAStmt 1 s) rest
-  putStrLn "]"
+  putStrLn "]\n"
 
 showAStmt :: Int -> RawStatement -> String
 showAStmt level stmt =

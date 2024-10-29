@@ -120,9 +120,9 @@ data RawStatement =
   | ReturnST Expression
   | VarAssignST AsngKind Variable Expression
   | ListST [RawStatement]
-  | NoOpST              -- ^ No operation, used to skip useless nodes without making list aggregation more complex.
   | ContinueST
   | BreakST
+  | NoOpST              -- ^ No operation, used to skip useless nodes without making list aggregation more complex.
   deriving (Show, Eq)
 
 

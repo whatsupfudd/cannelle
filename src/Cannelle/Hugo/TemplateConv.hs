@@ -1,5 +1,6 @@
 module Cannelle.Hugo.TemplateConv where
 
+import qualified Data.Map as Mp
 import qualified Data.Vector as V
 
 import qualified Cannelle.Template.Types as Tp
@@ -20,7 +21,9 @@ hugoFctToTmpl compFct = Tp.FunctionDefTpl {
       name = compFct.name
     , args = V.empty
     , returnType = Tp.VoidT
-    , ops = case Hg.assemble compFct of
+    , bytecode = case Hg.assemble compFct of
           Left err -> error err
           Right ops -> ops
+    , ops = V.empty
+    , labels = Mp.empty
   }

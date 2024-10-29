@@ -26,24 +26,24 @@ import qualified Cannelle.Template.Types as Tp
 import qualified Cannelle.Template.InOut as Tio
 
 
-parseBString :: Bs.ByteString -> Either String ()
+parseBString :: Bs.ByteString -> IO (Either String ())
 parseBString inString =
   let
     rezB = P.gramParse Nothing inString
   in
   case rezB of
     Left errMsg ->
-      Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
-    Right fuElements ->
+      pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
+    Right fuElements -> do
       let
         rawStatements = consolidateActions fuElements
-        compContext = case rawStatements of
-          Left err -> Left $ "@[runHugo] consolidateActions err: " <> err
-          Right rStatements -> compile "stdin" rStatements
-      in
-      case compContext of
-        Left err -> Left err
-        Right _ -> Right ()
+      case rawStatements of
+        Left err -> pure . Left $ "@[runHugo] consolidateActions err: " <> err
+        Right rStatements -> do
+          rez <- compile "stdin" rStatements
+          case rez of
+            Left err -> pure . Left $ "@[runHugo] compile err: " <> err
+            Right _ -> pure . Right $ ()
 
 
 loadFile :: FilePath -> IO Bs.ByteString
@@ -63,49 +63,50 @@ parse filePath mbOutPath = do
   mbSourceContent <- loadFileMaybe filePath
   case mbSourceContent of
     Nothing ->
-      pure . Left $ "@[runHugo] Could not read file " <> filePath
+      pure . Left $ "@[parse] Could not read file " <> filePath
     Just sourceContent ->
       case P.gramParse (Just filePath) sourceContent of
         Left errMsg ->
-          pure . Left $ "@[runHugo] parseTemplateSource err: " <> errMsg
+          pure . Left $ "@[parse] parseTemplateSource err: " <> errMsg
         Right fuElements ->
           case consolidateActions fuElements of
             Left errMsg ->
-              pure . Left $ "@[runHugo] consolidateActions err: " <> errMsg
+              pure . Left $ "@[parse] consolidateActions err: " <> errMsg
             Right rawStatements -> do
+              putStrLn $ "@[parse] raw statements:"
               printStatements rawStatements
-              let
-                rezTmpl = compile filePath rawStatements
+              rezTmpl <- compile filePath rawStatements
               case rezTmpl of
                 Left err ->
-                  pure $ Left $ "@[runHugo] Tio.read err: " <> err
-                Right tmpl -> do
-                  putStrLn $ "@[runHugo] read template:\n" <> Tio.showTemplateDef tmpl
+                  pure $ Left $ "@[parse] compile err: " <> err
+                Right fileUnit -> do
+                  putStrLn $ "@[parse] compiled FU:\n" <> Tio.showFileUnit fileUnit
                   case mbOutPath of
                     Nothing -> pure ()
                     Just outPath ->
-                      Tio.write outPath tmpl
+                      Tio.write outPath fileUnit
                   pure $ Right ()
 
 
-compile :: FilePath -> [Ha.RawStatement] -> Either String Tp.TemplateDef
+compile :: FilePath -> [Ha.RawStatement] -> IO (Either String Tp.FileUnit)
 compile filePath rStatements =
   -- putStrLn $ "@[runHugo] statements:"
   -- Hg.printStatements statements
-  case C.compPhaseA "$main" rStatements of
+  case C.compPhaseA "$topOfModule" rStatements of
     Left err ->
-      Left $ "@[runHugo] compileStatements err: " <> show err
-    Right (ctx, compStmts) ->
-      case C.compPhaseB ctx compStmts of
+      pure . Left $ "@[compile] compileStatements err: " <> show err
+    Right (ctxA, compStmts) ->
+      case C.compPhaseB ctxA of
         Left err ->
-          Left $ "@[runHugo] genCode err: " <> show err
-        Right compContext ->
-          Right $ Tp.TemplateDef {
+          pure . Left $ "@[compile] genCode err: " <> show err
+        Right ctxB -> do
+          putStrLn $ "@[compile] ctxtB.functionSlots:\n" <> show ctxB.functionSlots
+          putStrLn $ "@[compile] ctxtB.subCtxt.externalTemplates:\n" <> show ctxB.subContext.externalTemplates
+          pure . Right $ Tp.FileUnit {
                 name = Just . encodeUtf8 . pack $ filePath
               , description = Nothing
-              , constants = V.fromList $ map (hugoCteToTmpl . fst) . sortOn snd $ Mp.elems ctx.constants
-              , definitions = V.singleton (hugoFctToTmpl (Ne.head ctx.curFctDef))
-                        <> V.fromList (map (hugoFctToTmpl . fst) . Mp.elems $ ctx.functions)
+              , constants = V.fromList $ map (hugoCteToTmpl . fst) . sortOn snd $ Mp.elems ctxB.textConstants
+              , definitions = V.fromList $ map hugoFctToTmpl ctxB.phaseBFct
               , routing = V.empty
               , imports = V.empty
             }
@@ -122,8 +123,11 @@ compile filePath rStatements =
         name = compFct.name
       , args = V.empty
       , returnType = Tp.VoidT
-      , ops = case A.assemble compFct of
+      , bytecode = case A.assemble compFct of
             Left err -> error err
             Right ops -> ops
+      -- for debugging.
+      , ops = compFct.opcodes
+      , labels = compFct.labels
     }
 

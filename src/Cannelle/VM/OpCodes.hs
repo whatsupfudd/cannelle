@@ -5,6 +5,8 @@ where
 
 import Data.Char (ord)
 import Data.Int (Int32, Int64)
+import qualified Data.List as L
+import qualified Data.Map as Mp
 import Data.Text (Text)
 import qualified Data.Vector as V
 
@@ -19,8 +21,8 @@ data PcPtrT =
 data OpCode =
   NOP
   -- Heap access:
-  | SET_HEAP Int32
-  | GET_HEAP Int32
+  | STORE_HEAP Int32
+  | LOAD_HEAP Int32
   | GET_FIELD
   | SET_FIELD
   -- Register access:
@@ -144,8 +146,8 @@ data OpCode =
 instance Enum OpCode where
   fromEnum :: OpCode -> Int
   fromEnum NOP = 0
-  fromEnum (SET_HEAP _) = 1
-  fromEnum (GET_HEAP _) = 2
+  fromEnum (STORE_HEAP _) = 1
+  fromEnum (LOAD_HEAP _) = 2
   fromEnum GET_FIELD = 3
   fromEnum SET_FIELD = 4
   fromEnum (SET_REG_BOOL _ _) = 5
@@ -251,8 +253,8 @@ instance Enum OpCode where
 
   toEnum :: Int -> OpCode
   toEnum 0 = NOP
-  toEnum 1 = SET_HEAP 0
-  toEnum 2 = GET_HEAP 0
+  toEnum 1 = STORE_HEAP 0
+  toEnum 2 = LOAD_HEAP 0
   toEnum 3 = GET_FIELD
   toEnum 4 = SET_FIELD
   toEnum 5 = SET_REG_BOOL 0 False
@@ -358,8 +360,8 @@ instance Enum OpCode where
 
 opParCount :: OpCode -> Int
 opParCount NOP = 0
-opParCount (SET_HEAP _) = 1
-opParCount (GET_HEAP _) = 1
+opParCount (STORE_HEAP _) = 1
+opParCount (LOAD_HEAP _) = 1
 opParCount GET_FIELD = 0
 opParCount SET_FIELD = 0
 opParCount (SET_REG_BOOL _ _) = 2
@@ -463,8 +465,8 @@ opParCount POP_1 = 0
 
 toInstr :: OpCode -> [Int32]
 toInstr NOP = [0]
-toInstr (SET_HEAP a1) = [1, a1]
-toInstr (GET_HEAP a1) = [2, a1]
+toInstr (STORE_HEAP a1) = [1, a1]
+toInstr (LOAD_HEAP a1) = [2, a1]
 toInstr GET_FIELD = [3]
 toInstr SET_FIELD = [4]
 toInstr (SET_REG_BOOL a1 a2) = [5, a1, if a2 then 1 else 0]
@@ -588,3 +590,19 @@ dissassembleWithPos pos instrs =
       oneLine = show pos <> ": " <> instrName <> concatMap (\a -> " " <> show a) args
     in
     oneLine <> "\n" <> dissassembleWithPos (pos + 1 + opParCount symbInstr) remain
+
+
+showOpcodesWithLabels :: Mp.Map Int32 [Int32] -> V.Vector OpCode -> String
+showOpcodesWithLabels revLabels opcodes =
+  fst (V.foldl (\(acc, addr) op -> (acc <> showOpcode revLabels addr op <> "\n", succ addr)) ("", 0) opcodes)
+
+showOpcode :: Mp.Map Int32 [Int32] -> Int -> OpCode -> String
+showOpcode revLabels addr op =
+  let
+    addrTxt = case Mp.lookup (fromIntegral addr) revLabels of
+      Just j -> case j of
+        [ a ] -> show a <> " > "
+        _ -> L.intercalate ", " (map show j) <> " > "
+      Nothing -> ""
+  in
+  addrTxt <> show addr <> ":\t" <> show op

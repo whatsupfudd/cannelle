@@ -6,7 +6,7 @@ import qualified Data.Map as Mp
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Cannelle.VM.Context (MainText, VMModule (..))
-
+import Cannelle.VM.OpCodes (OpCode)
 {- File Template
   Defines a sequence of verbatim content and logic blocks. The verbatim content is simply concatenated toward the
   output, while the logic blocks are evaluated and control the generation of additional output that is added in
@@ -19,7 +19,7 @@ import Cannelle.VM.Context (MainText, VMModule (..))
   of a .data segment in an object file).
 -}
 
-data TemplateDef = TemplateDef {
+data FileUnit = FileUnit {
   name :: Maybe MainText
   , description :: Maybe MainText
   , constants :: V.Vector ConstantTpl
@@ -76,9 +76,13 @@ data FunctionDefTpl = FunctionDefTpl {
   name :: MainText
   , args :: V.Vector (MainText, TypeDef)
   , returnType :: TypeDef
-  , ops :: V.Vector Int32
+  , bytecode :: V.Vector Int32
+  -- for debugging:
+  , ops :: V.Vector OpCode
+  , labels :: Mp.Map Int32 (Maybe Int32)
   }
   deriving Show
+
 
 {- Logic: move to the Generator section? -}
 data FunctionTpl =

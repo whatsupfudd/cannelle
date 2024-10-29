@@ -10,35 +10,39 @@ import qualified Data.Map as Mp
 import qualified Data.Vector as V
 
 import Cannelle.Common.Error (CompError)
+import Cannelle.Hugo.AST (FStatement)
 import Cannelle.VM.OpCodes
 import Cannelle.VM.Context (MainText)
 
-data (Show subCtxtT) => CompContext subCtxtT = CompContext {
-    constants :: Mp.Map MainText (CompConstant, Int32)
+data Show subCtxtT => CompContext subCtxtT = CompContext {
+    textConstants :: Mp.Map MainText (CompConstant, Int32)
     , doubleConstants :: Mp.Map Double (Int32, Double)
     , i64Constants :: Mp.Map Int64 (Int32, Int64)
     -- functions: fully parsed functions.
     , functions :: Mp.Map MainText (CompFunction, Int32)
     , hasFailed :: Maybe MainText
-    , unitCounter :: Int32
+    -- Assigns UIDs to anything that needs one:
     , uidCounter :: Int32
     , fctCounter :: Int32
     , spitFctID :: Int32
     , curFctDef :: NonEmpty CompFunction
     , subContext :: subCtxtT
+    , functionSlots :: Mp.Map MainText (FunctionRef, Int32)
+    , importedFcts :: Mp.Map MainText [ (FctDefComp, Int32) ]
+    , phaseBFct :: [ CompFunction ]
+
+    {-- unused:
     , moduleMap :: Mp.Map Int32 (MainText, Maybe Int32)
     , revModuleMap :: Mp.Map MainText [(Int32, Maybe Int32)]
-    , importedFcts :: Mp.Map MainText [ (FctDefComp, Int32) ]
-    , functionSlots :: Mp.Map MainText (FunctionRef, Int32)
-    {-- unused:
     , functionAlias :: Mp.Map MainText Int32
     , appliedFcts :: Mp.Map MainText AppliedFunction
     --}
   }
 
+
 showCompContext :: (Show subCtxtT) => CompContext subCtxtT -> String
 showCompContext ctx ="CompContext:\n  constants:" 
-  <> concatMap (\(cte, idx) -> "\n    " <> show idx <> ": " <> show cte) (L.sortOn snd $ Mp.elems ctx.constants) <> "\n"
+  <> concatMap (\(cte, idx) -> "\n    " <> show idx <> ": " <> show cte) (L.sortOn snd $ Mp.elems ctx.textConstants) <> "\n"
   <> "  functions:" <> concatMap (\(fct, idx) -> "\n    " <> show idx <> ": " <> show fct) (Mp.elems ctx.functions) <> "\n"
   <> "  curFctDef:" <> show ctx.curFctDef <> "\n"
   <> "  subContext:" <> show ctx.subContext <> "\n"
@@ -59,14 +63,13 @@ data FunctionRef =
 
 
 instance (Show subCtxtT) => Show (CompContext subCtxtT) where
-  show c = "CompContext {\n    constants = ["
-      <> concatMap (\cte -> "\n      , " <> show cte) (L.sortOn snd $ Mp.elems c.constants)
-      <> "\n], functionSlots: " <> show c.functionSlots
-      <> "\n  , functions = [" <> concatMap (\c -> "\n      , " <> show c) c.functions
-      <> "\n]  , hasFailed = " <> show c.hasFailed
+  show c = "CompContext {\n    constant pool = ["
+      <> concatMap (\cte -> "\n      , " <> show cte) (L.sortOn snd $ Mp.elems c.textConstants)
+      <> "\n] , functions = [" <> concatMap (\c -> "\n      , " <> show c) c.functions
+      <> "\n] , hasFailed = " <> show c.hasFailed
       <> "\n  , subContext = " <> show c.subContext
       <> ", curFctDef = " <> show c.curFctDef
-      <> "\n  , importedFcts = " <> show c.importedFcts
+      -- <> "\n  , importedFcts = " <> show c.importedFcts
       <> "\n}"
 
 
@@ -76,10 +79,12 @@ data CompFunction = CompFunction {
     , uid :: Int32
     , labels :: Mp.Map Int32 (Maybe Int32)
     , iterLabels :: [ (Int32, Int32) ]
+    , fStatements :: [ FStatement ]
     , opcodes :: V.Vector OpCode
+    , heapStack :: NonEmpty (Mp.Map MainText (Int32, CompType))
+    , returnSize :: Int32
     {- unused.
     , args :: [ (MainText, CompType) ]
-    , heapDef :: Mp.Map MainText (Int32, CompType)
     , varAssignments :: Mp.Map MainText Int32
     , returnType :: CompType
     , references :: Mp.Map MainText (RefType, Int32)
@@ -107,6 +112,7 @@ instance Show CompFunction where
       <> "\n  , symbols = " <> show f.symbols <> "\n}"
     --}
 
+{-
 showOpcode :: Mp.Map Int32 [Int32] -> Int32 -> OpCode -> String
 showOpcode revLabels addr op =
   let
@@ -117,7 +123,7 @@ showOpcode revLabels addr op =
       Nothing -> ""
   in
   addrTxt <> show addr <> ":\t" <> show op
-
+-}
 
 data RefType =
   VarRT
@@ -194,6 +200,7 @@ data HugoCompileCtxt = HugoCompileCtxt {
     , blocks :: Mp.Map MainText Int32
   }
   deriving Show
+
 
 type FullCompContext = CompContext HugoCompileCtxt
 

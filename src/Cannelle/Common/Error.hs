@@ -34,5 +34,5 @@ splitResults results =
         Right valA -> (accE, valA : accA)
       ) ([], []) results
   in
-  (concatErrors lefts, rights)
+  (concatErrors lefts, reverse rights)
 
