@@ -1,10 +1,13 @@
+{-# LANGUAGE BangPatterns #-}
 module Cannelle.VM.Engine
 where
 
 import qualified Data.ByteString as BS
+import Data.Int (Int32)
+import Data.Maybe (fromMaybe)
 import Data.List.NonEmpty (NonEmpty (..), (<|))
 import qualified Data.List.NonEmpty as Ne
-import Data.Int (Int32)
+import qualified Data.List as L
 import Data.Text (Text, unpack, pack)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -12,23 +15,45 @@ import qualified Data.Vector as V
 import Cannelle.VM.Context
 import Cannelle.VM.OpCodes
 import Data.List (find)
-import Data.Maybe (isNothing, fromJust)
-
-
-data VmError =
-  UnimplementedOpCode OpCode
-  | UnknownOpcode OpCode
-  | MissingArgForOpcode OpCode
-  | UnknownFunction Int32
-  | StackError String
-  deriving Show
+import Cannelle.VM.OpImplA (buildOpTable, makeOpCode)
 
 
 newtype ExecResult = ExecResult VmContext
 
 
-execModule :: VMModule -> IO (Either String ExecResult)
-execModule vmModule =
+execModule :: VMModule -> Maybe MainText -> IO (Either String ExecResult)
+execModule vmModule mbStartName =
+  let
+    mainFunction = fromMaybe "$topOfModule" mbStartName
+  in
+  case V.find (\f -> f.fname == "$topOfModule") vmModule.functions of
+    Nothing -> pure . Left $ "@[execModule] no entry function (topOfModule) found."
+    Just bootFunction ->
+      let
+        bootFrame = ExecFrame {
+            stack = []
+            , heap = V.replicate bootFunction.heapSize VoidHE
+            , pc = 0, flags = NoFlag
+            , function = bootFunction
+            , returnValue = (Nothing, Nothing)
+          }
+        ctxt = VmContext {
+                    status = Init
+                  , frameStack = bootFrame :| []
+                  , outStream = BS.empty
+                  , modules = V.singleton vmModule, constants = vmModule.constants
+              }
+      in do
+      putStrLn "@[execModule] starting..."
+      eiCtxt <- doVM ctxt
+      putStrLn $ "@[execModule] done, status: " <> either (const "error") (\ctxt -> show ctxt.status) eiCtxt
+      case eiCtxt of
+        Left errMsg -> pure $ Left errMsg
+        Right aCtxt -> pure . Right $ ExecResult aCtxt
+
+
+fakeExecModule :: VMModule -> IO (Either String ExecResult)
+fakeExecModule vmModule =
   let
     fakeFrame = ExecFrame { stack = [], heap = V.empty
         , pc = 0, flags = NoFlag
@@ -37,6 +62,7 @@ execModule vmModule =
             , fname = "$fake"
             , args = Nothing
             , returnType = FirstOrderSO StringTO
+            , heapSize = 1
             , body = NativeCode "fake-fct"
           }
         , returnValue = (Nothing, Nothing)
@@ -117,8 +143,11 @@ doVM context =
         let
           opLength = 1 + opParCount (toEnum $ fromIntegral anOp)
           opWithArgs = if opLength == 1 then V.singleton anOp else V.slice frame.pc opLength opcodes
+        in
+        let
+          !opTable = buildOpTable
         in do
-        eiRez <- doOpcode inCtxt frame opWithArgs
+        eiRez <- doOpcode opTable inCtxt frame opWithArgs
         case eiRez of
           Right (retCtxt, retFrame, isRunning) -> do
             let
@@ -143,207 +172,28 @@ analyzeVmError err heap stack =
     StackError msg -> "Stack error: " <> msg
 
 
-doOpcode :: VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, Bool))
-doOpcode context frame opWithArgs =
+doOpcode :: V.Vector OpImpl -> VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, Bool))
+doOpcode opTable context frame opWithArgs =
   let
-    opcode = toEnum . fromIntegral $ V.head opWithArgs
+    mbOpID = opWithArgs V.!? 0
   in
-  case opcode of
-    NOP -> pure . Left $ UnimplementedOpCode opcode
-
-    -- Comparisons:
-    CMP_BOOL_IMM ->
-      -- pop value on stack, should be boolean, then compare with immediate value.
-      let
-        eiBool = popBool context frame
-      in
-      case eiBool of
-        Left (StackError aMsg) -> pure . Left $ StackError ("In CMP_BOOL_IMM, " <> aMsg)
-        Right (newFrame, aBool) ->
-          pure $ Right (context, newFrame { flags = if aBool then TrueFlag else FalseFlag}, True)
-    -- PC ops:
-    JUMP_TRUE _ ->
-      -- jump to immediate value if true flag is set.
-      if frame.flags == TrueFlag then
-        case opWithArgs V.!? 1 of
-          Nothing ->
-            pure . Left $ MissingArgForOpcode opcode
-          Just newPC ->
-            pure $ Right (context, frame { pc = frame.pc + fromIntegral newPC }, True)
+  case mbOpID of
+    Nothing -> pure . Left . UnknownOpcode $ makeOpCode opWithArgs
+    Just opID ->
+      if opID > 255 then
+        pure . Left . UnknownOpcode $ makeOpCode opWithArgs
       else
-        pure $ Right (context, frame, True)
-    JUMP _ ->
-      -- jump to immediate value.
-      case opWithArgs V.!? 1 of
-        Nothing ->
-          pure . Left $ MissingArgForOpcode opcode
-        Just newPC ->
-          pure $ Right (context, frame { pc = frame.pc + fromIntegral newPC }, True)
-
-    -- Stack access:
-    PUSH_INT_IMM _ ->
-      case opWithArgs V.!? 1 of
-        Nothing ->
-          pure . Left $ MissingArgForOpcode opcode
-        Just anInt ->
-          -- push anInt to stack.
-          pure $ Right (context, frame { stack = (IntSV, anInt) : frame.stack }, True)
-
-    PUSH_CONST _ ->
-      case opWithArgs V.!? 1 of
-        Nothing ->
-          pure . Left $ MissingArgForOpcode opcode
-        Just constID ->
-          let
-            constant = context.constants V.!? fromIntegral constID
-            mbStackValue = case constant of
-              Nothing -> Nothing
-              Just aConst -> Just (ConstantRefSV, constID)
-          in
-          case mbStackValue of
-            Nothing -> pure . Left . StackError $ "Constant ID " <> show constID <> " not found."
-            Just aValue -> do
-              -- putStrLn $ "@[doOpcode] push constant " <> show constant
-              -- push constant from constant area to stack.
-              pure $ Right (context, frame { stack = aValue : frame.stack }, True)
-
-    -- Invoke:
-    REDUCE _ _->
-      -- reduce fctID with arity from stack.
-      let
-        (fctID, arity) = (opWithArgs V.!? 1, opWithArgs V.!? 2)
-      in
-      if isNothing fctID || isNothing arity then
-        pure . Left $ MissingArgForOpcode opcode
-      else do
-        case fromJust fctID of
-          0 ->
-            -- spit: pop last element from stack, sent it to output stream.
-            let
-              eiDerefStr = popString context frame
-            in
-            case eiDerefStr of
-                Left (StackError aMsg) -> pure . Left $ StackError ("In REDUCE fct " <> show fctID <> ", " <> aMsg)
-                Right (newFrame, aStr, isQuoted) ->
-                  -- putStrLn $ "@[doOpcode] spit: " <> unpack (TE.decodeUtf8 aStr)
-                  -- TODO: quote a string value vs a verbatim-block.
-                  let
-                    newStr = if isQuoted then "\"" <> aStr <> "\"" else aStr
-                    newStream = context.outStream <> newStr
-                  in
-                  pure $ Right (context { outStream = newStream }, newFrame, True)
-          n ->
-            let
-              curModule = context.modules V.! 0
-            in
-            if V.length curModule.functions > fromIntegral n then
-              let
-                newFct = curModule.functions V.! fromIntegral n
-                newStack = drop (fromIntegral $ fromJust arity) frame.stack
-                newFrame = frame { function = newFct, stack = newStack, pc = 0 }
-              in
-              pure $ Right (context, newFrame, True)
-            else
-              let
-                fakeType = case n of
-                  2 -> FirstOrderSO StringTO   -- jwkDefaultLocation
-                  3 -> FirstOrderSO IntTO      -- serverPortDefault
-                  4 -> FirstOrderSO BoolTO     -- hasWebServer
-                  5 -> FirstOrderSO StringTO   -- appName
-                  6 -> FirstOrderSO StringTO   -- appConfEnvVar
-                  _ -> FirstOrderSO IntTO
-                heapPos = fromIntegral $ V.length frame.heap
-                (newStack, newHeap) = case fakeType of
-                  FirstOrderSO BoolTO ->
-                    ((BoolSV, 1) : frame.stack, frame.heap)
-                  FirstOrderSO IntTO ->
-                    ((IntSV, 1) : frame.stack, frame.heap)
-                  FirstOrderSO StringTO ->
-                    ((HeapRefSV, heapPos) : frame.stack, frame.heap V.++ V.singleton (StringHE "test-string"))
-              in do
-              putStrLn $ "@[doOpcode] unknown fct:" <> show n <> ", arity: " <> show arity <> "."
-              pure $ Right (context, frame { stack = newStack, heap = newHeap }, True)
-    -- Heap management (save new heap ID to register):
-    ARR_CONCAT ->
-      let
-        eiFstStr = popString context frame
-        eiSndStr = case eiFstStr of
-          Left (StackError aMsg) -> Left (StackError ("In ARR_CONCAT, 2nd value: " <> aMsg))
-          Right (fstFrame, fstStr, _) -> case popString context fstFrame of
-            Left (StackError aMsg) -> Left (StackError ("In ARR_CONCAT, 2nd value: " <> aMsg))
-            Right (sndFrame, sndStr, _) -> Right (sndFrame, (fstStr, sndStr))
-      in
-      case eiSndStr of
-        Left err -> pure $ Left err
-        Right (postFrame, (fstStr, sndStr)) ->
-          let
-            concatStr = sndStr <> fstStr -- operand positions are reversed in the stack.
-            heapPos = fromIntegral $ V.length frame.heap
-            newHeap = frame.heap V.++ V.singleton (StringHE concatStr)
-            newStack = (HeapRefSV, heapPos) : postFrame.stack
-          in
-          pure $ Right (context, postFrame { stack = newStack, heap = newHeap }, True)
-
-    HALT -> pure $ Right (context { status = Halted }, frame, False)
-    GET_FIELD ->
-      -- TODO: implement GET_FIELD. For, fake a value.
-      pure $ Right (context, frame { stack = (IntSV, 1) : frame.stack }, True)
-
-    _ -> pure . Left $ UnimplementedOpCode opcode
+        let
+          !opImpl = opTable V.! fromIntegral opID
+        in do
+        putStrLn $ "@[doOpcode] op: " <> debugOpArgs opWithArgs
+        opImpl context frame opWithArgs
 
 
-popString :: VmContext -> ExecFrame -> Either VmError (ExecFrame, BS.ByteString, Bool)
-popString context frame =
+debugOpArgs :: V.Vector Int32 -> String
+debugOpArgs opWithArgs =
   let
-    (mbTopValue, newStack) = case frame.stack of
-      [] -> (Nothing, [])
-      (topValue : rest) -> (Just topValue, rest)
+    (opLabel, _) = break (== ' ') . show . makeOpCode $ opWithArgs
+    args = unwords $ V.toList $ V.map show (V.tail opWithArgs)
   in
-  case mbTopValue of
-    Nothing -> Left $ StackError "@[popString] Empty stack."
-    Just topValue ->
-      case topValue of
-        (ConstantRefSV, constID) ->
-          let
-            constant = context.constants V.!? fromIntegral constID
-          in
-          case constant of
-            Nothing ->
-              Left . StackError $ "@[popString] constant ID " <> show constID <> " not found."
-            Just aConst ->
-              case aConst of
-                StringCte aStr -> Right (frame { stack = newStack }, aStr, True)
-                VerbatimCte cmprFlag aStr ->
-                  -- TODO: if cmprFlag is true, then decompress the string.
-                  Right (frame { stack = newStack }, aStr, False)
-                _ ->
-                  Left . StackError $ "@[popString] constant ID " <> show constID <> " is not a string."
-        (HeapRefSV, heapID) ->
-          case frame.heap V.!? fromIntegral heapID of
-            Nothing ->
-              Left . StackError $ "@[popString] heap ID " <> show heapID <> " not found."
-            Just aHeapValue ->
-              case aHeapValue of
-                StringHE aStr -> Right (frame { stack = newStack }, aStr, True)
-                _ ->
-                  Left . StackError $ "@[popString] , heap ID " <> show heapID <> " is not a string."
-        (IntSV, anInt) ->
-          Right (frame { stack = newStack }, TE.encodeUtf8 . pack $ show anInt, False)
-        (aType, _) ->
-          Left . StackError $ "@[popString] invalid popped value of type " <> show aType <> " for string dereference."
-
-
-popBool :: VmContext -> ExecFrame -> Either VmError (ExecFrame, Bool)
-popBool context frame =
-  let
-    (mbTopValue, newStack) = case frame.stack of
-      [] -> (Nothing, [])
-      (topValue : rest) -> (Just topValue, rest)
-  in
-  case mbTopValue of
-    Nothing -> Left $ StackError "@[popBool] Empty stack."
-    Just topValue ->
-      case topValue of
-        (BoolSV, aBool) -> Right (frame { stack = newStack }, aBool /= 0)
-        (IntSV, anInt) -> Right (frame { stack = newStack }, anInt /= 0)
-        (aType, _) -> Left . StackError $ "@[popBool] invalid popped value of type " <> show aType <> " for boolean dereference."
+  opLabel <> " " <> args

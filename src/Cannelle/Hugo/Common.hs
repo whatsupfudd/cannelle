@@ -22,11 +22,9 @@ import Cannelle.Hugo.Types
 
 initCompContext :: (Show subCtxt) => MainText -> subCtxt -> Mp.Map Int32 (MainText, Maybe Int32) -> Mp.Map MainText [(FctDefComp, Int32)] -> CompContext subCtxt
 initCompContext funcLabel subCtxt impModules impFcts = CompContext {
-  textConstants = Mp.empty
-  , doubleConstants = Mp.empty
-  , i64Constants = Mp.empty
-  , functions = Mp.empty
-  , hasFailed = Nothing
+    hasFailed = Nothing
+  , cteEntries = initConstantEntries
+  , fctDefs = Mp.empty
   , uidCounter = 0
   , fctCounter = 1
   , spitFctID = 0
@@ -35,6 +33,8 @@ initCompContext funcLabel subCtxt impModules impFcts = CompContext {
   , functionSlots = Mp.empty
   , importedFcts = impFcts
   , phaseBFct = []
+  , cteMaps = initConstantMaps
+  , constantPool = V.empty
   {--
   , moduleMap = impModules
   , revModuleMap = impRevModules impModules
@@ -42,6 +42,25 @@ initCompContext funcLabel subCtxt impModules impFcts = CompContext {
   , appliedFcts = Mp.empty
   --}
 }
+
+
+initConstantEntries :: ConstantEntries
+initConstantEntries = ConstantEntries {
+  textConstants = Mp.empty
+  , doubleConstants = Mp.empty
+  , i64Constants = Mp.empty
+  , fctRefCte = V.empty
+  }
+
+
+initConstantMaps :: ConstantMap
+initConstantMaps = ConstantMap {
+  txtCteMap = Mp.empty
+  , dblCteMap = Mp.empty
+  , i64CteMap = Mp.empty
+  , fctCteMap = Mp.empty
+  , fctSlotMap = Mp.empty
+  }
 
 
 initCompFunction :: MainText -> Int32 -> CompFunction
@@ -54,6 +73,8 @@ initCompFunction aLabel fctID = CompFunction {
     , heapStack = initHeapDef :| []
     , fStatements = []
     , returnSize = 0
+    , returnType = VoidVT
+    , args = []
     {--
     , returnType = SimpleVT IntST
     , references = Mp.empty
@@ -162,6 +183,8 @@ getFunctionSlot funcName = do
       let
         funcID = fromIntegral $ 1 + Mp.size ctx.functionSlots
       put ctx { functionSlots = Mp.insert funcName (UnresolvedFR, funcID) ctx.functionSlots }
+      -- Warning: do a addStringConstant after the ctx update.
+      addStringConstant funcName
       pure funcID
 
 
@@ -200,9 +223,9 @@ popFunctionComp labelID returnSize body = do
       let
         curFct :| tailFcts = ctx.curFctDef
         updCurFct = curFct { fStatements = body, returnSize = returnSize }
-        newFctID = fromIntegral $ Mp.size ctx.functions
+        newFctID = fromIntegral $ Mp.size ctx.fctDefs
       in do
-      put ctx { curFctDef = hTail :| tTail, functions = Mp.insert updCurFct.name (updCurFct, newFctID) ctx.functions }
+      put ctx { curFctDef = hTail :| tTail, fctDefs = Mp.insert updCurFct.name (updCurFct, newFctID) ctx.fctDefs }
       pure $ Right ()
     _ -> pure $ Left $ CompError [(0, "Closing function comp context on an empty list.")]
 

@@ -44,14 +44,13 @@ import Cannelle.Jinja.Html
 import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourceLine, sourceColumn, parseGingerFile, parseGinger, formatParserError)
 
 import qualified Cannelle.Hugo.Parse as Hg
+import qualified Cannelle.Hugo.Exec as Hg
 
 import qualified Cannelle.Fuddle.Parser as Fd
 
 import qualified Cannelle.PHP.Parse as Ph
 import Cannelle.PHP.Print (printPhpContext)
 
-import qualified Cannelle.Template.Types as Tp
-import qualified Cannelle.Template.InOut as Tio
 import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..), OutputSpec (..))
 
 
@@ -131,60 +130,12 @@ runHugo tplSrc dataSrc mbOut = do
       rez <- Hg.parse fn (mbOut >>= \(OutputSpec outPath) -> Just outPath)
       case rez of
         Left err -> putStrLn err
-        Right () -> pure ()
+        Right fileUnit -> Hg.exec fileUnit
     TemplateFromStdin -> do
       text <- encodeUtf8 . pack <$> getContents
       let
         parse = Hg.parseBString text
       pure ()
-
-{-
-  case rezA of
-    Left errMsg -> putStrLn errMsg
-    Right statements -> do
-      putStrLn $ "@[runHugo] statements:"
-      Hg.printStatements statements
-      case Hg.compileStatements "$main" statements of
-        Left err -> putStrLn $ "@[runHugo] compileStatements err: " <> show err
-        Right ctx -> do
-          putStrLn $ "@[runHugo] compiled ctx: " <> Hg.showHugoCtxt ctx
-          case mbOut of
-            Just (OutputSpec filePath) ->
-              let
-                template = Tp.TemplateDef {
-                  name = Just . encodeUtf8 . pack $ filePath
-                  , description = Nothing
-                  , constants = V.fromList $ map (hugoCteToTmpl . fst) . sortOn snd $ Mp.elems ctx.constants
-                  , definitions = V.singleton (hugoFctToTmpl (Ne.head ctx.curFctDef))
-                            <> V.fromList (map (hugoFctToTmpl . fst) . Mp.elems $ ctx.functions)
-                  , routing = V.empty
-                  , imports = V.empty
-                  }
-               in do
-                Tio.write filePath template
-                testTempl <- Tio.read filePath
-                case testTempl of
-                  Left err -> putStrLn $ "@[runHugo] Tio.read err: " <> err
-                  Right tmpl -> putStrLn $ "@[runHugo] read template:\n" <> Tio.showTemplateDef tmpl
-            Nothing -> return ()
-  where
-  hugoCteToTmpl :: Ht.CompConstant -> Tp.ConstantTpl
-  hugoCteToTmpl (Ht.IntC i) = Tp.IntegerP $ fromIntegral i
-  hugoCteToTmpl (Ht.DoubleC d) = Tp.DoubleP d
-  hugoCteToTmpl (Ht.BoolC b) = Tp.BoolP b
-  hugoCteToTmpl (Ht.StringC s) = Tp.StringP s
-  hugoCteToTmpl (Ht.VerbatimC s) = Tp.StringP s
-
-  hugoFctToTmpl :: Ht.CompFunction -> Tp.FunctionDefTpl
-  hugoFctToTmpl compFct = Tp.FunctionDefTpl {
-        name = compFct.name
-      , args = V.empty
-      , returnType = Tp.VoidT
-      , ops = case Hg.assemble compFct of
-            Left err -> error err
-            Right ops -> ops
-    }
--}
 
 
 runPHP :: TemplateSource -> DataSource -> IO ()
@@ -201,6 +152,7 @@ runPHP tplSrc dataSrc = do
     TemplateFromStdin ->
       putStrLn $ "@[runPHP] TemplateFromStdin not supported yet."
   pure ()
+
 
 runFuddle :: TemplateSource -> DataSource -> IO ()
 runFuddle tplSrc dataSrc = do

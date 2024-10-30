@@ -1,4 +1,4 @@
-module Cannelle.Fuddle.Ast where
+module Cannelle.Fuddle.AST where
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)

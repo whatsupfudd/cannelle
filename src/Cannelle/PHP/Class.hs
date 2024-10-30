@@ -100,6 +100,8 @@ instance (MonadScanner errT m) => MonadScanner errT (IdentityT m) where
   mkScanner f = lift (mkScanner f)
   tokenPush test mt = lift (tokenPush test mt)
   tokenDemand test mt = lift (tokenDemand test mt)
+  tokenTryPush test mt = lift (tokenTryPush test mt)
+
 
 
 instance (MonadScanner errT m) => MonadScanner errT (L.StateT st m) where
@@ -123,6 +125,9 @@ instance (MonadScanner errT m) => MonadScanner errT (L.StateT st m) where
   getScannerState = lift getScannerState
   updateScannerState f = lift (updateScannerState f)
   mkScanner f = lift (mkScanner f)
+  tokenPush test mt = lift (tokenPush test mt)
+  tokenDemand test mt = lift (tokenDemand test mt)
+  tokenTryPush test mt = lift (tokenTryPush test mt)
 
 
 instance (MonadScanner e m) => MonadScanner e (S.StateT st m) where
@@ -146,6 +151,9 @@ instance (MonadScanner e m) => MonadScanner e (S.StateT st m) where
   getScannerState = lift getScannerState
   updateScannerState f = lift (updateScannerState f)
   mkScanner f = lift (mkScanner f)
+  tokenPush test mt = lift (tokenPush test mt)
+  tokenDemand test mt = lift (tokenDemand test mt)
+  tokenTryPush test mt = lift (tokenTryPush test mt)
 
 
 instance (MonadScanner e m) => MonadScanner e (L.ReaderT r m) where
@@ -166,6 +174,9 @@ instance (MonadScanner e m) => MonadScanner e (L.ReaderT r m) where
   getScannerState = lift getScannerState
   updateScannerState f = lift (updateScannerState f)
   mkScanner f = lift (mkScanner f)
+  tokenPush test mt = lift (tokenPush test mt)
+  tokenDemand test mt = lift (tokenDemand test mt)
+  tokenTryPush test mt = lift (tokenTryPush test mt)
 
 
 instance (Monoid w, MonadScanner e m) => MonadScanner e (L.WriterT w m) where
@@ -193,6 +204,9 @@ instance (Monoid w, MonadScanner e m) => MonadScanner e (L.WriterT w m) where
   getScannerState = lift getScannerState
   updateScannerState f = lift (updateScannerState f)
   mkScanner f = lift (mkScanner f)
+  tokenPush test mt = lift (tokenPush test mt)
+  tokenDemand test mt = lift (tokenDemand test mt)
+  tokenTryPush test mt = lift (tokenTryPush test mt)
 
 
 instance (Monoid w, MonadScanner e m) => MonadScanner e (S.WriterT w m) where
@@ -220,6 +234,9 @@ instance (Monoid w, MonadScanner e m) => MonadScanner e (S.WriterT w m) where
   getScannerState = lift getScannerState
   updateScannerState f = lift (updateScannerState f)
   mkScanner f = lift (mkScanner f)
+  tokenPush test mt = lift (tokenPush test mt)
+  tokenDemand test mt = lift (tokenDemand test mt)
+  tokenTryPush test mt = lift (tokenTryPush test mt)
 
 
 instance (Monoid w, MonadScanner e m) => MonadScanner e (L.RWST r w st m) where
@@ -245,6 +262,9 @@ instance (Monoid w, MonadScanner e m) => MonadScanner e (L.RWST r w st m) where
   getScannerState = lift getScannerState
   updateScannerState f = lift (updateScannerState f)
   mkScanner f = lift (mkScanner f)
+  tokenPush test mt = lift (tokenPush test mt)
+  tokenDemand test mt = lift (tokenDemand test mt)
+  tokenTryPush test mt = lift (tokenTryPush test mt)
 
 
 instance (Monoid w, MonadScanner e m) => MonadScanner e (S.RWST r w st m) where
@@ -270,6 +290,9 @@ instance (Monoid w, MonadScanner e m) => MonadScanner e (S.RWST r w st m) where
   getScannerState = lift getScannerState
   updateScannerState f = lift (updateScannerState f)
   mkScanner f = lift (mkScanner f)
+  tokenPush test mt = lift (tokenPush test mt)
+  tokenDemand test mt = lift (tokenDemand test mt)
+  tokenTryPush test mt = lift (tokenTryPush test mt)
 
 
 fixs :: s -> Either a (b, s) -> (Either a b, s)

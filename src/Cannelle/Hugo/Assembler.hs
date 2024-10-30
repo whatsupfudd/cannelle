@@ -16,7 +16,7 @@ import qualified Crypto.Hash.MD5 as Cr
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.VM.OpCodes (OpCode (..), PcPtrT (..), opParCount, toInstr)
 import Cannelle.VM.Context (MainText, ConstantValue (..))
-import Cannelle.Hugo.Types (GenCompileResult (..), CompContext (..), CompFunction (..), CompConstant (..))
+import Cannelle.Hugo.Types (GenCompileResult (..), CompContext (..), CompFunction (..), CompConstant (..), ConstantEntries (..), ConstantMap (..))
 
 
 emitOp :: (Show sc) => OpCode -> GenCompileResult sc ()
@@ -77,27 +77,28 @@ addDoubleConstant :: (Show sc) => Double -> State (CompContext sc) Int32
 addDoubleConstant newConst = do
   ctx <- get
   let
-    existing = Mp.lookup newConst ctx.doubleConstants
+    existing = Mp.lookup newConst ctx.cteEntries.doubleConstants
   case existing of
     Just (cteID, _) -> pure cteID
     Nothing -> do
       let
-        cteID = fromIntegral $ Mp.size ctx.doubleConstants
-      put ctx { doubleConstants = Mp.insert newConst (cteID, newConst) ctx.doubleConstants }
+        cteID = fromIntegral $ Mp.size ctx.cteEntries.doubleConstants
+      put ctx { cteEntries = ctx.cteEntries { doubleConstants = Mp.insert newConst (cteID, newConst) ctx.cteEntries.doubleConstants } }
       pure cteID
+
 
 addTypedConstant :: (Show sc) => CompConstant -> MainText -> State (CompContext sc) Int32
 addTypedConstant newConst md5Hash = do
     ctx <- get
     let
-      existing = Mp.lookup md5Hash ctx.textConstants
+      existing = Mp.lookup md5Hash ctx.cteEntries.textConstants
     case existing of
-      Just (value, index) -> pure index
+      Just (index, value) -> pure index
       Nothing ->
         let
-          index = fromIntegral $ Mp.size ctx.textConstants
+          index = fromIntegral $ Mp.size ctx.cteEntries.textConstants
         in do
-        put ctx { textConstants = Mp.insert md5Hash (newConst, index) ctx.textConstants }
+        put ctx { cteEntries = ctx.cteEntries { textConstants = Mp.insert md5Hash (index, newConst) ctx.cteEntries.textConstants } }
         pure index
 
 
@@ -169,8 +170,7 @@ derefLabels opCodes symbLabels =
 
 
 compCteToFUnit :: CompConstant -> ConstantValue
-compCteToFUnit (IntC a) = IntCte (fromIntegral a)
 compCteToFUnit (DoubleC a) = DoubleCte (realToFrac a)
-compCteToFUnit (BoolC a) = IntCte (if a then 1 else 0)
+compCteToFUnit (LongC a) = LongCte a
 compCteToFUnit (StringC a) = StringCte a
 compCteToFUnit (VerbatimC a) = VerbatimCte False a

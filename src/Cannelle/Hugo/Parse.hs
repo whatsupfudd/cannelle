@@ -16,17 +16,18 @@ import System.IO.Error (tryIOError)
 import qualified Cannelle.Hugo.Parser as P
 import qualified Cannelle.Hugo.CompilerA as C
 import qualified Cannelle.Hugo.CompilerB as C
+import qualified Cannelle.Hugo.CompilerC as C
 import qualified Cannelle.Hugo.Assembler as A
 import qualified Cannelle.Hugo.AST as Ha
 import qualified Cannelle.Hugo.Types as Ht
 import Cannelle.Hugo.ActionMerger (consolidateActions, printStatements)
 import Cannelle.Hugo.Types (CompContext (..))
 
-import qualified Cannelle.Template.Types as Tp
-import qualified Cannelle.Template.InOut as Tio
+import qualified Cannelle.FileUnit.Types as Ft
+import qualified Cannelle.FileUnit.InOut as Fio
 
 
-parseBString :: Bs.ByteString -> IO (Either String ())
+parseBString :: Bs.ByteString -> IO (Either String Ft.FileUnit)
 parseBString inString =
   let
     rezB = P.gramParse Nothing inString
@@ -40,25 +41,10 @@ parseBString inString =
       case rawStatements of
         Left err -> pure . Left $ "@[runHugo] consolidateActions err: " <> err
         Right rStatements -> do
-          rez <- compile "stdin" rStatements
-          case rez of
-            Left err -> pure . Left $ "@[runHugo] compile err: " <> err
-            Right _ -> pure . Right $ ()
+          compile "stdin" rStatements
 
 
-loadFile :: FilePath -> IO Bs.ByteString
-loadFile fn = openFile fn ReadMode >>= Bs.hGetContents
-
-loadFileMaybe :: FilePath -> IO (Maybe Bs.ByteString)
-loadFileMaybe fn =
-    tryIOError (loadFile fn) >>= \case
-            Right contents -> return (Just contents)
-            Left err -> do
-                print err
-                return Nothing
-
-
-parse :: FilePath -> Maybe FilePath -> IO (Either String ())
+parse :: FilePath -> Maybe FilePath -> IO (Either String Ft.FileUnit)
 parse filePath mbOutPath = do
   mbSourceContent <- loadFileMaybe filePath
   case mbSourceContent of
@@ -80,15 +66,16 @@ parse filePath mbOutPath = do
                 Left err ->
                   pure $ Left $ "@[parse] compile err: " <> err
                 Right fileUnit -> do
-                  putStrLn $ "@[parse] compiled FU:\n" <> Tio.showFileUnit fileUnit
+                  putStrLn $ "@[parse] compiled FU:\n" <> Fio.showFileUnit fileUnit
                   case mbOutPath of
                     Nothing -> pure ()
                     Just outPath ->
-                      Tio.write outPath fileUnit
-                  pure $ Right ()
+                      Fio.write outPath fileUnit
+                  pure $ Right fileUnit
 
 
-compile :: FilePath -> [Ha.RawStatement] -> IO (Either String Tp.FileUnit)
+-- TODO: remove the IO once the putStrLn aren't needed anymore.
+compile :: FilePath -> [Ha.RawStatement] -> IO (Either String Ft.FileUnit)
 compile filePath rStatements =
   -- putStrLn $ "@[runHugo] statements:"
   -- Hg.printStatements statements
@@ -100,29 +87,34 @@ compile filePath rStatements =
         Left err ->
           pure . Left $ "@[compile] genCode err: " <> show err
         Right ctxB -> do
-          putStrLn $ "@[compile] ctxtB.functionSlots:\n" <> show ctxB.functionSlots
-          putStrLn $ "@[compile] ctxtB.subCtxt.externalTemplates:\n" <> show ctxB.subContext.externalTemplates
-          pure . Right $ Tp.FileUnit {
-                name = Just . encodeUtf8 . pack $ filePath
-              , description = Nothing
-              , constants = V.fromList $ map (hugoCteToTmpl . fst) . sortOn snd $ Mp.elems ctxB.textConstants
-              , definitions = V.fromList $ map hugoFctToTmpl ctxB.phaseBFct
-              , routing = V.empty
-              , imports = V.empty
-            }
+          case C.compPhaseC ctxB of
+            Left err ->
+              pure . Left $ "@[compile] genCode err: " <> show err
+            Right ctxB -> do
+              putStrLn $ "@[compile] ctxtB.functionSlots:\n" <> show ctxB.functionSlots
+              putStrLn $ "@[compile] ctxtB.subCtxt.externalTemplates:\n" <> show ctxB.subContext.externalTemplates
+              putStrLn $ "@[compile] ctxtB.constantPool:\n" <> show ctxB.constantPool
+              pure . Right $ Ft.FileUnit {
+                    name = Just . encodeUtf8 . pack $ filePath
+                  , description = Nothing
+                  , constants = ctxB.constantPool
+                  , definitions = V.fromList $ map hugoFctToTmpl ctxB.phaseBFct
+                  , routing = V.empty
+                  , imports = V.empty
+                }
   where
-  hugoCteToTmpl :: Ht.CompConstant -> Tp.ConstantTpl
-  hugoCteToTmpl (Ht.IntC i) = Tp.IntegerP $ fromIntegral i
-  hugoCteToTmpl (Ht.DoubleC d) = Tp.DoubleP d
-  hugoCteToTmpl (Ht.BoolC b) = Tp.BoolP b
-  hugoCteToTmpl (Ht.StringC s) = Tp.StringP s
-  hugoCteToTmpl (Ht.VerbatimC s) = Tp.StringP s
+  hugoCteToTmpl :: Ht.CompConstant -> Ft.ConstantTpl
+  hugoCteToTmpl (Ht.IntC i) = Ft.IntegerP $ fromIntegral i
+  hugoCteToTmpl (Ht.DoubleC d) = Ft.DoubleP d
+  hugoCteToTmpl (Ht.BoolC b) = Ft.BoolP b
+  hugoCteToTmpl (Ht.StringC s) = Ft.StringP s
+  hugoCteToTmpl (Ht.VerbatimC s) = Ft.StringP s
 
-  hugoFctToTmpl :: Ht.CompFunction -> Tp.FunctionDefTpl
-  hugoFctToTmpl compFct = Tp.FunctionDefTpl {
+  hugoFctToTmpl :: Ht.CompFunction -> Ft.FunctionDefTpl
+  hugoFctToTmpl compFct = Ft.FunctionDefTpl {
         name = compFct.name
       , args = V.empty
-      , returnType = Tp.VoidT
+      , returnType = Ft.VoidT
       , bytecode = case A.assemble compFct of
             Left err -> error err
             Right ops -> ops
@@ -130,4 +122,16 @@ compile filePath rStatements =
       , ops = compFct.opcodes
       , labels = compFct.labels
     }
+
+
+loadFile :: FilePath -> IO Bs.ByteString
+loadFile fn = openFile fn ReadMode >>= Bs.hGetContents
+
+loadFileMaybe :: FilePath -> IO (Maybe Bs.ByteString)
+loadFileMaybe fn =
+    tryIOError (loadFile fn) >>= \case
+            Right contents -> return (Just contents)
+            Left err -> do
+                print err
+                return Nothing
 

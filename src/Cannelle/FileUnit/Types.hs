@@ -1,11 +1,11 @@
-module Cannelle.Template.Types where
+module Cannelle.FileUnit.Types where
 
 import Data.Word (Word8)
 import Data.Int (Int32)
 import qualified Data.Map as Mp
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Cannelle.VM.Context (MainText, VMModule (..))
+import Cannelle.VM.Context (MainText, VMModule (..), ConstantValue)
 import Cannelle.VM.OpCodes (OpCode)
 {- File Template
   Defines a sequence of verbatim content and logic blocks. The verbatim content is simply concatenated toward the
@@ -22,7 +22,7 @@ import Cannelle.VM.OpCodes (OpCode)
 data FileUnit = FileUnit {
   name :: Maybe MainText
   , description :: Maybe MainText
-  , constants :: V.Vector ConstantTpl
+  , constants :: V.Vector ConstantValue
   , definitions :: V.Vector FunctionDefTpl
   , routing :: V.Vector RouteTpl
   , imports :: V.Vector ImportTpl

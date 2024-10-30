@@ -271,7 +271,28 @@ instance (Ord errT, Monad m) => MonadScanner errT (ScannerT errT m) where
   tokenPush = pTokenPush
   tokenDemand = pTokenDemand
   tokenTryPush = pTokenTryPush
-
+  -- TODO: provide reflected implementations for these unused methods, and figure out the missing ones.
+  label str ma = ma
+  try ma = ma
+  lookAhead ma = ma
+  {- TODO: implement these functions (or implement properly).
+  notFollowedBy :: m a -> m ()
+  withRecovery ::  (ScanError e -> m a) -> m a -> m a
+  observing :: m a -> m (Either (ScanError e) a)
+  tokens :: (NodeEntry -> NodeEntry -> Bool) ->  NodeEntry ->  m NodeEntry
+  takeWhileP :: Maybe String -> (NodeEntry -> Bool) ->m NodeEntry
+  takeWhile1P :: Maybe String ->  (NodeEntry -> Bool) -> m NodeEntry
+  takeP :: Maybe String -> Int -> m NodeEntry
+  mkScanner :: (ScanState e -> Reply e a) -> m a
+  -}
+  -- notFollowedBy e sc =
+  withRecovery r ma = ma
+  -- observing ma = ma
+  -- tokens ts = ts
+  -- takeWhileP l f = f
+  -- takeWhile1P l f = f
+  -- takeP l n = n
+  -- mkScanner f =
 
 pScanError :: ScanError errT -> ScannerT errT m a
 pScanError e = ScannerT $ \state _ _ _ emptyErr -> emptyErr e state

@@ -25,7 +25,9 @@ source-repository head
 library
   exposed-modules:
       Cannelle.Common.Error
-      Cannelle.Fuddle.Ast
+      Cannelle.FileUnit.InOut
+      Cannelle.FileUnit.Types
+      Cannelle.Fuddle.AST
       Cannelle.Fuddle.Compiler
       Cannelle.Fuddle.Parser
       Cannelle.Hugo.ActionMerger
@@ -34,7 +36,9 @@ library
       Cannelle.Hugo.Common
       Cannelle.Hugo.CompilerA
       Cannelle.Hugo.CompilerB
+      Cannelle.Hugo.CompilerC
       Cannelle.Hugo.Defines
+      Cannelle.Hugo.Exec
       Cannelle.Hugo.Parse
       Cannelle.Hugo.Parser
       Cannelle.Hugo.TemplateConv
@@ -64,12 +68,13 @@ library
       Cannelle.PHP.Scanner
       Cannelle.PHP.State
       Cannelle.PHP.Types
-      Cannelle.Template.InOut
-      Cannelle.Template.Types
       Cannelle.VM.Context
       Cannelle.VM.Engine
+      Cannelle.VM.Heap
       Cannelle.VM.Memory
       Cannelle.VM.OpCodes
+      Cannelle.VM.OpImplA
+      Cannelle.VM.Stack
       Text.Ginger
       Text.PrintfA
   other-modules:

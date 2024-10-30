@@ -6,7 +6,7 @@ import Control.DeepSeq (NFData (rnf))
 
 import TreeSitter.Node ( Node(..), TSPoint(TSPoint, pointRow, pointColumn) )
 
-import Cannelle.Fuddle.Ast (BinaryOp(EqOP))
+import Cannelle.Fuddle.AST (BinaryOp(EqOP))
 
 
 data NodeEntry = NodeEntry {

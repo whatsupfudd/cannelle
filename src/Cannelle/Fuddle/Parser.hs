@@ -19,7 +19,7 @@ import qualified Text.Megaparsec.Char.Lexer as ML
 import qualified Text.Megaparsec.Debug as MD
 
 import Cannelle.Common.Error (CompError (..))
-import Cannelle.Fuddle.Ast
+import Cannelle.Fuddle.AST
 
 
 type Parser = M.Parsec Void Text

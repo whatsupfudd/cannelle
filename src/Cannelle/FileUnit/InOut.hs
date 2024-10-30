@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
-module Cannelle.Template.InOut where
+module Cannelle.FileUnit.InOut where
 
 import qualified Data.Binary.Get as Bg
 import qualified Data.Binary.Put as Bp
@@ -10,9 +10,9 @@ import qualified Data.Map as Mp
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 
-import Cannelle.VM.Context (MainText)
+import Cannelle.VM.Context (MainText, ConstantValue (..), cteValKind)
 import Cannelle.VM.OpCodes (dissassemble, showOpcodesWithLabels)
-import Cannelle.Template.Types
+import Cannelle.FileUnit.Types
 
 
 data TplHeader = TplHeader {
@@ -27,7 +27,7 @@ showFileUnit :: FileUnit -> String
 showFileUnit tmpl = "FileUnit:\n"
   <> "name: " <> show tmpl.name <> "\n"
   <> "description: " <> show tmpl.description <> "\n"
-  <> "constants:\n" <> concatMap (\(c, idx) -> show idx <> ": " <> showConstantTpl c <> "\n") (zip (V.toList tmpl.constants) [0..]) <> "\n"
+  <> "constants:\n" <> concatMap (\(c, idx) -> show idx <> ": " <> showConstantValue c <> "\n") (zip (V.toList tmpl.constants) [0..]) <> "\n"
   <> "definitions:\n" <> concatMap showFunctionDef (V.toList tmpl.definitions) <> "\n"
   <> "routing: " <> show tmpl.routing <> "\n"
   <> "imports: " <> show tmpl.imports <> "\n"
@@ -45,13 +45,13 @@ showFunctionDef function =
   <> "ops:\n" <> showOpcodesWithLabels revLabels function.ops <> "\n"
 
 
-showConstantTpl :: ConstantTpl -> String
-showConstantTpl (StringP str) = "StringP: " <> show str
-showConstantTpl (IntegerP int) = "IntegerP: " <> show int
-showConstantTpl (DoubleP double) = "DoubleP: " <> show double
-showConstantTpl (BoolP bool) = "BoolP: " <> show bool
-showConstantTpl (ListP _ array) = "ListP: " <> show array
-showConstantTpl (StructP _ struct) = "StructP: " <> show struct
+showConstantValue :: ConstantValue -> String
+showConstantValue (StringCte str) = "StringCte: " <> show str
+showConstantValue (DoubleCte double) = "DoubleCte: " <> show double
+showConstantValue (ArrayCte array) = "ArrayCte: " <> show array
+showConstantValue (TupleCte struct) = "TupleCte: " <> show struct
+showConstantValue (FunctionRefRaw moduleID labelID returnTypeID argTypeID argNameIDs) = "FunctionRefRaw: " <> show moduleID <> " " <> show labelID <> " " <> show returnTypeID <> " " <> show argTypeID <> " " <> show argNameIDs
+showConstantValue (VerbatimCte _ str) = "VerbatimCte: " <> show str
 
 
 cantMaginNbr :: Int32
@@ -101,7 +101,7 @@ putFileUnit template =
     putImportsV1 template.imports
 
 
-putConstantsV1 :: V.Vector ConstantTpl -> Bp.Put
+putConstantsV1 :: V.Vector ConstantValue -> Bp.Put
 putConstantsV1 constants = do
   Bp.putInt32be (fromIntegral $ V.length constants)
   mapM_ putAConstantV1 constants
@@ -155,25 +155,43 @@ putTemplateHeader header = do
       Bp.putByteString descr 
 
 
-getConstantsV1 :: Bg.Get (V.Vector ConstantTpl)
+getConstantsV1 :: Bg.Get (V.Vector ConstantValue)
 getConstantsV1 = do
   nbrConstants <- Bg.getInt32be
   V.fromList <$> mapM (const getAConstantV1) [1..nbrConstants]
 
 
-getAConstantV1 :: Bg.Get ConstantTpl
+getAConstantV1 :: Bg.Get ConstantValue
 getAConstantV1 = Bg.label "getAConstantV1" $ do
   kind <- Bg.getWord8
+  {-
+    cteValKind (VerbatimCte _ _) = 1
+    cteValKind (StringCte _) = 2
+    cteValKind (LongCte _) = 3
+    cteValKind (DoubleCte _) = 4
+    cteValKind (ArrayCte _) = 5
+    cteValKind (TupleCte _) = 6
+    cteValKind (ClassCte _) = 7
+    cteValKind (NameAndType _ _) = 8
+    cteValKind (TypeSignature _) = 9
+    cteValKind (FieldRef _ _) = 10
+    cteValKind (MethodRef _ _) = 11
+    cteValKind (FunctionRef _) = 12
+    cteValKind (FunctionRefRaw {}) = 13
+    cteValKind (ModuleRef _) = 14
+  -}
   case kind of
-    1 -> do    -- String
+    1 -> do    -- Verbatim
       strLn <- Bg.getInt32be
-      StringP <$> Bg.getByteString (fromIntegral strLn)
-    2 -> do -- Int
-      IntegerP . fromIntegral <$> Bg.getInt32be
-    3 -> do -- Float
-      DoubleP <$> Bg.getDoublebe
-    4 -> do -- Bool
-      BoolP . (== 1) <$> Bg.getWord8
+      VerbatimCte False <$> Bg.getByteString (fromIntegral strLn)
+    2 -> do -- String
+      strLn <- Bg.getInt32be
+      StringCte <$> Bg.getByteString (fromIntegral strLn)
+    3 -> do -- Long
+      LongCte . fromIntegral <$> Bg.getInt64be
+    4 -> do -- Double
+      DoubleCte <$> Bg.getDoublebe
+    {-
     5 -> do -- Array
       arrayLn <- Bg.getInt32be
       arrayType <- Bg.getWord8
@@ -184,45 +202,53 @@ getAConstantV1 = Bg.label "getAConstantV1" $ do
       structTypeID <- Bg.getInt32be
       -- TODO: check that the struct defined by structTypeID is matching every element in the vector.
       StructP (fromIntegral structTypeID) . V.fromList <$> mapM (const getAConstantV1) [1..structLn]
+    -}
+    13 -> do -- FunctionRefRaw
+      moduleID <- Bg.getInt32be
+      labelID <- Bg.getInt32be
+      returnTypeID <- Bg.getInt32be
+      argTypeID <- Bg.getInt32be
+      nbrArgs <- Bg.getInt32be
+      argNameIDs <- mapM (const Bg.getInt32be) [1..nbrArgs]
+      pure $ FunctionRefRaw moduleID labelID returnTypeID argTypeID argNameIDs
     _ -> fail $ "Invalid constant kind: " <> show kind
 
 
-putAConstantV1 :: ConstantTpl -> Bp.Put
+putAConstantV1 :: ConstantValue -> Bp.Put
 putAConstantV1 constant = do
-  Bp.putWord8 (constantKind constant)
+  Bp.putWord8 (cteValKind constant)
   -- TODO: check the correctness of the ai-gen code:
   case constant of
-    StringP str -> do
+    StringCte str -> do
       Bp.putInt32be (fromIntegral $ Bs.length str)
       Bp.putByteString str
-    IntegerP anInt ->
-      Bp.putInt32be (fromIntegral anInt)
-    DoubleP double ->
+    DoubleCte double ->
       Bp.putDoublebe double
-    BoolP bool ->
-      Bp.putWord8 (if bool then 1 else 0)
-    ListP _ array -> do
-      Bp.putInt32be (fromIntegral $ V.length array)
-      mapM_ putAConstantV1 array
-    StructP _ struct -> do
-      Bp.putInt32be (fromIntegral $ V.length struct)
-      mapM_ putAConstantV1 struct
+    VerbatimCte compFlag str -> do
+      Bp.putInt32be (fromIntegral $ Bs.length str)
+      Bp.putByteString str
+    FunctionRefRaw moduleID labelID returnTypeID argTypeID argNameIDs -> do
+      Bp.putInt32be moduleID
+      Bp.putInt32be labelID
+      Bp.putInt32be returnTypeID
+      Bp.putInt32be argTypeID
+      Bp.putInt32be (fromIntegral $ length argNameIDs)
+      mapM_ Bp.putInt32be argNameIDs
 
 
-
-getDefinitionsV1 :: V.Vector ConstantTpl -> Bg.Get (V.Vector FunctionDefTpl)
+getDefinitionsV1 :: V.Vector ConstantValue -> Bg.Get (V.Vector FunctionDefTpl)
 getDefinitionsV1 constants = Bg.label "getDefinitionsV1" $ do
   nbrDefinitions <- Bg.getInt32be
   V.fromList <$> mapM (const (getAFunctionV1 constants)) [1..nbrDefinitions]
 
 
-putDefinitionsV1 :: V.Vector ConstantTpl -> V.Vector FunctionDefTpl -> Bp.Put
+putDefinitionsV1 :: V.Vector ConstantValue -> V.Vector FunctionDefTpl -> Bp.Put
 putDefinitionsV1 constants definitions = do
   Bp.putInt32be (fromIntegral $ V.length definitions)
   mapM_ (putAFunctionV1 constants) definitions
 
 
-getAFunctionV1 :: V.Vector ConstantTpl -> Bg.Get FunctionDefTpl
+getAFunctionV1 :: V.Vector ConstantValue -> Bg.Get FunctionDefTpl
 getAFunctionV1 constants = Bg.label "getAFunctionV1" $ do
   nbrLn <- Bg.getInt32be
   name <- Just <$>Bg.getByteString (fromIntegral nbrLn)
@@ -253,7 +279,7 @@ getAFunctionV1 constants = Bg.label "getAFunctionV1" $ do
     _ -> fail "@[getAFunctionV1] Error in name/return type encoding."
 
 
-putAFunctionV1 :: V.Vector ConstantTpl -> FunctionDefTpl -> Bp.Put
+putAFunctionV1 :: V.Vector ConstantValue -> FunctionDefTpl -> Bp.Put
 putAFunctionV1 constants function = do
   -- Name's length (TODO: refer to the constants vector instead of serializing the string):
   Bp.putInt32be (fromIntegral $ Bs.length function.name)
@@ -271,7 +297,7 @@ putAFunctionV1 constants function = do
   mapM_ (Bp.putInt32be . fromIntegral) function.bytecode
 
 
-putArgDef :: V.Vector ConstantTpl -> (MainText, TypeDef) -> Bp.Put
+putArgDef :: V.Vector ConstantValue -> (MainText, TypeDef) -> Bp.Put
 putArgDef constants arg = do
   Bp.putInt32be 0
 
@@ -286,8 +312,8 @@ putRoutingV1 routes = do
   Bp.putInt32be 0
 
 
-parseTypeDef :: ConstantTpl -> Maybe TypeDef
-parseTypeDef (StringP str) = Just IntegerT
+parseTypeDef :: ConstantValue -> Maybe TypeDef
+parseTypeDef (StringCte str) = Just IntegerT
 parseTypeDef _ = Nothing
 
 

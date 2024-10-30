@@ -19,7 +19,7 @@ import qualified Data.Text.Encoding as TE
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.VM.OpCodes (OpCode (..), toInstr, opParCount, PcPtrT (..))
 import Cannelle.VM.Context (VMModule (..), FunctionDef (..), ConstantValue (..), ModuledDefinition (..), FunctionCode (..), SecondOrderType (..), FirstOrderType (..))
-import Cannelle.Fuddle.Ast
+import Cannelle.Fuddle.AST
 
 
 data ReferenceDetails =
@@ -91,6 +91,7 @@ initFctDef name = FunctionDef {
   , fname = name
   , args = Nothing
   , returnType = FirstOrderSO StringTO
+  , heapSize = 1
   , body = ByteCode Vc.empty
 }
 
@@ -146,6 +147,7 @@ compileAstTree nTree =
               , fname = "$main"
               , args = Nothing
               , returnType = FirstOrderSO StringTO
+              , heapSize = 1
               , body = ByteCode $ Vc.fromList $ concatMap toInstr rezContext.bytecode
             }
             keyVals = sortBy (\(ak, av) (bk, bv) -> if av == bv then EQ else if av < bv then LT else GT ) $ Mp.toList rezContext.constantMap

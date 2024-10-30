@@ -10,17 +10,17 @@ import qualified Data.Map as Mp
 import qualified Data.Vector as V
 
 import Cannelle.Common.Error (CompError)
+
 import Cannelle.Hugo.AST (FStatement)
 import Cannelle.VM.OpCodes
-import Cannelle.VM.Context (MainText)
+import Cannelle.VM.Context (MainText, ConstantValue)
+
 
 data Show subCtxtT => CompContext subCtxtT = CompContext {
-    textConstants :: Mp.Map MainText (CompConstant, Int32)
-    , doubleConstants :: Mp.Map Double (Int32, Double)
-    , i64Constants :: Mp.Map Int64 (Int32, Int64)
-    -- functions: fully parsed functions.
-    , functions :: Mp.Map MainText (CompFunction, Int32)
-    , hasFailed :: Maybe MainText
+    hasFailed :: Maybe MainText
+    , cteEntries :: ConstantEntries
+    -- functions: fully parsed functions beside top one.
+    , fctDefs :: Mp.Map MainText (CompFunction, Int32)
     -- Assigns UIDs to anything that needs one:
     , uidCounter :: Int32
     , fctCounter :: Int32
@@ -30,7 +30,8 @@ data Show subCtxtT => CompContext subCtxtT = CompContext {
     , functionSlots :: Mp.Map MainText (FunctionRef, Int32)
     , importedFcts :: Mp.Map MainText [ (FctDefComp, Int32) ]
     , phaseBFct :: [ CompFunction ]
-
+    , constantPool :: V.Vector ConstantValue
+    , cteMaps :: ConstantMap
     {-- unused:
     , moduleMap :: Mp.Map Int32 (MainText, Maybe Int32)
     , revModuleMap :: Mp.Map MainText [(Int32, Maybe Int32)]
@@ -40,10 +41,27 @@ data Show subCtxtT => CompContext subCtxtT = CompContext {
   }
 
 
+data ConstantEntries = ConstantEntries {
+    textConstants :: Mp.Map MainText (Int32, CompConstant)
+    , doubleConstants :: Mp.Map Double (Int32, Double)
+    , i64Constants :: Mp.Map Int64 (Int32, Int64)
+    , fctRefCte :: V.Vector (Int32, (Int32, Int32, Int32, Int32, [Int32]))
+  }
+  deriving Show
+
+data ConstantMap = ConstantMap {
+    txtCteMap :: Mp.Map Int32 Int32
+    , dblCteMap :: Mp.Map Int32 Int32
+    , i64CteMap :: Mp.Map Int32 Int32
+    , fctCteMap :: Mp.Map Int32 Int32
+    , fctSlotMap :: Mp.Map Int32 Int32
+  }
+  deriving Show
+
 showCompContext :: (Show subCtxtT) => CompContext subCtxtT -> String
 showCompContext ctx ="CompContext:\n  constants:" 
-  <> concatMap (\(cte, idx) -> "\n    " <> show idx <> ": " <> show cte) (L.sortOn snd $ Mp.elems ctx.textConstants) <> "\n"
-  <> "  functions:" <> concatMap (\(fct, idx) -> "\n    " <> show idx <> ": " <> show fct) (Mp.elems ctx.functions) <> "\n"
+  <> concatMap (\(cte, idx) -> "\n    " <> show idx <> ": " <> show cte) (L.sortOn fst $ Mp.elems ctx.cteEntries.textConstants) <> "\n"
+  <> "  functions:" <> concatMap (\(fct, idx) -> "\n    " <> show idx <> ": " <> show fct) (Mp.elems ctx.fctDefs) <> "\n"
   <> "  curFctDef:" <> show ctx.curFctDef <> "\n"
   <> "  subContext:" <> show ctx.subContext <> "\n"
 
@@ -64,8 +82,8 @@ data FunctionRef =
 
 instance (Show subCtxtT) => Show (CompContext subCtxtT) where
   show c = "CompContext {\n    constant pool = ["
-      <> concatMap (\cte -> "\n      , " <> show cte) (L.sortOn snd $ Mp.elems c.textConstants)
-      <> "\n] , functions = [" <> concatMap (\c -> "\n      , " <> show c) c.functions
+      <> concatMap (\cte -> "\n      , " <> show cte) (L.sortOn fst $ Mp.elems c.cteEntries.textConstants)
+      <> "\n] , functions = [" <> concatMap (\c -> "\n      , " <> show c) c.fctDefs
       <> "\n] , hasFailed = " <> show c.hasFailed
       <> "\n  , subContext = " <> show c.subContext
       <> ", curFctDef = " <> show c.curFctDef
@@ -82,11 +100,11 @@ data CompFunction = CompFunction {
     , fStatements :: [ FStatement ]
     , opcodes :: V.Vector OpCode
     , heapStack :: NonEmpty (Mp.Map MainText (Int32, CompType))
-    , returnSize :: Int32
-    {- unused.
-    , args :: [ (MainText, CompType) ]
-    , varAssignments :: Mp.Map MainText Int32
+    , returnSize :: Int32 
     , returnType :: CompType
+    , args :: [ (MainText, CompType) ]
+    {- unused.
+    , varAssignments :: Mp.Map MainText Int32
     , references :: Mp.Map MainText (RefType, Int32)
     , symbols :: Mp.Map MainText Int32
     --}
@@ -143,6 +161,7 @@ data CompType =
   -- Dynamic type, anything fits and the type is decided at runtime:
   | DynamicVT
   -- Special type of variable, all other arguments are combined into an array of values:
+  | VoidVT
   deriving Show
 
 
@@ -164,6 +183,7 @@ data StructField =
 -- **** Compilation-time constants **** --
 data CompConstant =
   IntC Int32
+  | LongC Int64
   | DoubleC Double
   | BoolC Bool
   | StringC MainText

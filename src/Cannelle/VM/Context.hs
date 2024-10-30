@@ -4,11 +4,11 @@ where
 
 import qualified Data.ByteString as Bs
 import Data.Int (Int32, Int64)
-import Data.Text (Text)
 import Data.List.NonEmpty (NonEmpty)
-import qualified Data.Vector as V
-import qualified Data.ByteString as BS
 import qualified Data.Map as Mp
+import Data.Text (Text)
+import qualified Data.Vector as V
+import Data.Word (Word8)
 
 import Cannelle.VM.OpCodes (OpCode (..), dissassemble)
 import Cannelle.VM.Memory (IntM)
@@ -16,10 +16,22 @@ import Cannelle.VM.Memory (IntM)
 type MainText = Bs.ByteString
 
 
+data VmError =
+  UnimplementedOpCode OpCode
+  | UnknownOpcode OpCode
+  | MissingArgForOpcode OpCode
+  | UnknownFunction Int32
+  | StackError String
+  deriving Show
+
+
+type OpImpl = VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, Bool))
+
+
 data VmContext = VmContext {
     status :: StatusVM
     , frameStack :: NonEmpty ExecFrame
-    , outStream :: BS.ByteString
+    , outStream :: Bs.ByteString
     , modules :: V.Vector VMModule
     -- TODO: decide if this is useful given each module has a constants vector.
     , constants :: V.Vector ConstantValue
@@ -92,12 +104,17 @@ data HeapEntry =
   | IntHE Int32
   | FloatHE Float
   | LongHE Int64
-  | DoubleHD Double
-  | StringHE BS.ByteString
+  | DoubleHE Double
+  | StringHE Bs.ByteString
+  -- StringRefHE: refers to an entry in the constant pool.
+  | StringRefHE Int32
   | ArrayHE (V.Vector HeapEntry)
+  -- SliceHE: first is the vector address in the global storage, second is the start, third is the length.
+  | SliceHE Int32 Int32 Int32
   | TupleHE (V.Vector HeapEntry)
   -- StructHE: first in is the ID of the struct in the ConstantPool, the list is its fields values.
   | StructHE Int32 [HeapEntry]
+  | VoidHE
   deriving Show
 
 
@@ -159,11 +176,12 @@ data FunctionDef = FunctionDef {
     , fname :: Text
     , args :: Maybe (NonEmpty ArgumentDef)
     , returnType :: SecondOrderType
+    , heapSize :: Int
     , body :: FunctionCode
   }
 
 instance Show FunctionDef where
-  show (FunctionDef mid n a r b) = "FunctionDef " <> show n <> "\n  , code: "
+  show (FunctionDef mid n a r h b) = "FunctionDef " <> show n <> "\n  , code: "
       <> case b of
            NativeCode ref -> "native: " <> ref <> "."
            ByteCode code -> dissassemble code
@@ -185,10 +203,9 @@ data FunctionCode =
 
 -- VerbatimCte: can be compressed (true), while StringCte is not.
 data ConstantValue =
-  VerbatimCte Bool BS.ByteString
-  | StringCte BS.ByteString
-  | IntCte Int
-  | FloatCte Float
+  VerbatimCte Bool Bs.ByteString
+  | StringCte Bs.ByteString
+  | LongCte Int64
   | DoubleCte Double
   | ArrayCte [ ConstantValue ]
   | TupleCte [ ConstantValue ]
@@ -198,5 +215,24 @@ data ConstantValue =
   | FieldRef MainText MainText
   | MethodRef MainText MainText
   | FunctionRef MainText
+  -- Fct Raw: moduleID, labelID, returnTypeID, argTypeID, argNameIDs.
+  | FunctionRefRaw Int32 Int32 Int32 Int32 [Int32]
+  | ModuleRef MainText
   deriving Show
 
+
+cteValKind :: ConstantValue -> Word8
+cteValKind (VerbatimCte _ _) = 1
+cteValKind (StringCte _) = 2
+cteValKind (LongCte _) = 3
+cteValKind (DoubleCte _) = 4
+cteValKind (ArrayCte _) = 5
+cteValKind (TupleCte _) = 6
+cteValKind (ClassCte _) = 7
+cteValKind (NameAndType _ _) = 8
+cteValKind (TypeSignature _) = 9
+cteValKind (FieldRef _ _) = 10
+cteValKind (MethodRef _ _) = 11
+cteValKind (FunctionRef _) = 12
+cteValKind (FunctionRefRaw {}) = 13
+cteValKind (ModuleRef _) = 14
