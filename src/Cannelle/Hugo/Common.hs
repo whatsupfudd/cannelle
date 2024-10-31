@@ -35,8 +35,8 @@ initCompContext funcLabel subCtxt impModules impFcts = CompContext {
   , phaseBFct = []
   , cteMaps = initConstantMaps
   , constantPool = V.empty
+  , moduleSlots = Mp.empty
   {--
-  , moduleMap = impModules
   , revModuleMap = impRevModules impModules
   , functionAlias = Mp.empty
   , appliedFcts = Mp.empty
@@ -60,6 +60,7 @@ initConstantMaps = ConstantMap {
   , i64CteMap = Mp.empty
   , fctCteMap = Mp.empty
   , fctSlotMap = Mp.empty
+  , moduleMap = Mp.empty
   }
 
 
@@ -174,17 +175,17 @@ referenceIdent refName refKind = do
 -}
 
 
-getFunctionSlot :: (Show sc) => MainText -> State (CompContext sc) Int32
-getFunctionSlot funcName = do
+getFunctionSlot :: (Show sc) => Int32 -> MainText -> State (CompContext sc) Int32
+getFunctionSlot moduleID funcName = do
+  -- Warning: do a addStringConstant before or after any ctx update.
+  funcNameID <- addStringConstant funcName
   ctx <- get
-  case Mp.lookup funcName ctx.functionSlots of
+  case Mp.lookup (moduleID, funcNameID) ctx.functionSlots of
     Just (_, funcID) -> pure funcID
     Nothing -> do
       let
         funcID = fromIntegral $ 1 + Mp.size ctx.functionSlots
-      put ctx { functionSlots = Mp.insert funcName (UnresolvedFR, funcID) ctx.functionSlots }
-      -- Warning: do a addStringConstant after the ctx update.
-      addStringConstant funcName
+      put ctx { functionSlots = Mp.insert (moduleID, funcNameID) (UnresolvedFR, funcID) ctx.functionSlots }
       pure funcID
 
 

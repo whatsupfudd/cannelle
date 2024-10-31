@@ -35,6 +35,7 @@ data VmContext = VmContext {
     , modules :: V.Vector VMModule
     -- TODO: decide if this is useful given each module has a constants vector.
     , constants :: V.Vector ConstantValue
+    , tmpGlobalHeap :: Heap
   }
   deriving Show
 
@@ -64,6 +65,7 @@ data StackEntry =
   | StringSV
   | ConstantRefSV
   | HeapRefSV
+  | GlobalHeapRefSV
   deriving Show
 
 data FirstOrderType =
@@ -112,8 +114,11 @@ data HeapEntry =
   -- SliceHE: first is the vector address in the global storage, second is the start, third is the length.
   | SliceHE Int32 Int32 Int32
   | TupleHE (V.Vector HeapEntry)
-  -- StructHE: first in is the ID of the struct in the ConstantPool, the list is its fields values.
-  | StructHE Int32 [HeapEntry]
+  -- StructHE: first in is the ID of the struct in the ConstantPool, second is the field definition in ConstantPool.
+  | StructHE Int32 Int32 (V.Vector HeapEntry)
+  -- A simpler version of StructHE, for initial implementation.
+  | StructV0 (Mp.Map MainText HeapEntry)
+  | ClosureHE Int32
   | VoidHE
   deriving Show
 
@@ -217,6 +222,8 @@ data ConstantValue =
   | FunctionRef MainText
   -- Fct Raw: moduleID, labelID, returnTypeID, argTypeID, argNameIDs.
   | FunctionRefRaw Int32 Int32 Int32 Int32 [Int32]
+  -- ModuleRefRaw: labelID
+  | ModuleRefRaw Int32
   | ModuleRef MainText
   deriving Show
 
@@ -236,3 +243,4 @@ cteValKind (MethodRef _ _) = 11
 cteValKind (FunctionRef _) = 12
 cteValKind (FunctionRefRaw {}) = 13
 cteValKind (ModuleRef _) = 14
+cteValKind (ModuleRefRaw _) = 15

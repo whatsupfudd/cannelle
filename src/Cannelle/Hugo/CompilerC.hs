@@ -219,7 +219,7 @@ genStmtOps stmt@(FStatement { as = IncludeFS templateID expr }) = do
   -- TODO: pop the context-compile stack.
 
 
-genStmtOps stmt@(FStatement { as = PartialFS templateID expr }) = do
+genStmtOps stmt@(FStatement { as = PartialFS moduleID fctID expr }) = do
   -- TODO: push the new location of the global context on the context-compile stack.
   case expr.ae of
     CurrentContextEC ->
@@ -237,13 +237,17 @@ genStmtOps stmt@(FStatement { as = PartialFS templateID expr }) = do
       A.emitOp $ STORE_HEAP 0
   -- TODO: how does the VM knows if the partial function is available? It has a slot for it,
   -- and initializes with a void function?
-  A.emitOp $ REDUCE templateID 1
-  case expr.ae of
-    CurrentContextEC -> pure $ Right ()
-    _ -> do
-      A.emitOp $ LOAD_HEAP 999     -- TODO: use the proper heap ID.
-      A.emitOp $ STORE_HEAP 0 
-  -- TODO: pop the context-compile stack.
+  ctx <- get
+  case Mp.lookup fctID ctx.cteMaps.fctSlotMap of
+    Nothing -> pure . Left $ CompError [(0, "PartialFS: Function slot not found: " <> show fctID)]
+    Just fctSlotID -> do
+      A.emitOp $ REDUCE fctSlotID 1
+      case expr.ae of
+        CurrentContextEC -> pure $ Right ()
+        _ -> do
+          A.emitOp $ LOAD_HEAP 999     -- TODO: use the proper heap ID.
+          A.emitOp $ STORE_HEAP 0 
+      -- TODO: pop the context-compile stack.
 
 
 genStmtOps stmt@(FStatement { as = ReturnFS expr }) = do

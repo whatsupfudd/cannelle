@@ -15,7 +15,6 @@ import Cannelle.VM.Context (MainText, ConstantValue (..))
 import qualified Cannelle.Hugo.Assembler as A
 
 import Cannelle.Hugo.Types
-import qualified Crypto.Hash.MD5 as Cr
 
 
 compPhaseB :: FullCompContext -> Either CompError FullCompContext
@@ -73,7 +72,17 @@ partB ctxtB =
         (updCtePool, updRevMap)
       ) (poolB, Mp.empty) $ Mp.elems ctxtB.cteEntries.i64Constants
     -- move function refs.
-    (!poolD, !fctRevMap) = V.foldl (\(ctePool, revMap) (fctID, (moduleID, labelID, returnID, argIDs, argNameIDs)) -> let
+    (!poolD, !moduleSlotMap) = foldl (\(ctePool, revMap) (labelID, moduleID) -> let
+          nCteID = fromIntegral $ V.length ctePool
+          updLabelID = case Mp.lookup labelID txtRevMap of
+            Just txtID -> txtID
+            Nothing -> error $ "@[partB] functionSlots: unexpected labelID for " <> show labelID <> " (id: " <> show moduleID <> ")"
+          updCtePool = V.snoc ctePool (ModuleRefRaw updLabelID)
+          updRevMap = Mp.insert moduleID nCteID revMap
+        in
+        (updCtePool, updRevMap)
+      ) (poolC, Mp.empty) $ Mp.toList ctxtB.moduleSlots
+    (!poolE, !fctRevMap) = V.foldl (\(ctePool, revMap) (fctID, (moduleID, labelID, returnID, argIDs, argNameIDs)) -> let
           nCteID = fromIntegral $ V.length ctePool
           updCtePool = V.snoc ctePool (FunctionRefRaw moduleID 
                       (fromMaybe 0 $ Mp.lookup labelID txtRevMap)
@@ -83,18 +92,26 @@ partB ctxtB =
           updRevMap = Mp.insert fctID nCteID revMap
         in
         (updCtePool, updRevMap)
-      ) (poolC, Mp.empty) ctxtB.cteEntries.fctRefCte
+      ) (poolD, Mp.empty) ctxtB.cteEntries.fctRefCte
     -- move referred functions:
-    (!poolE, !fctSlotMap) = foldl (\(ctePool, revMap) (label, (kind, fctID)) -> let
+    (!poolF, !fctSlotMap) = foldl (\(ctePool, revMap) ((moduleID, labelID), (kind, fctID)) -> let
           nCteID = fromIntegral $ V.length ctePool
-          labelID = maybe 0 fst $ Mp.lookup (Cr.hash label) ctxtB.cteEntries.textConstants
-          updCtePool = V.snoc ctePool (FunctionRefRaw 1 labelID 0 0 [])
+          updLabelID = case Mp.lookup labelID txtRevMap of
+            Just txtID -> txtID
+            Nothing -> error $ "@[partB] functionSlots: unexpected labelID for " <> show labelID <> " (id: " <> show fctID <> ")"
+          updModuleID = if moduleID < 2 then
+              moduleID
+            else
+              case Mp.lookup moduleID moduleSlotMap of
+                Just anID -> anID
+                Nothing -> error $ "@[partB] functionSlots: unexpected moduleID " <> show moduleID <> " (id: " <> show fctID <> ")"
+          updCtePool = V.snoc ctePool (FunctionRefRaw updModuleID updLabelID 0 0 [])
           updRevMap = Mp.insert fctID nCteID revMap
         in
         (updCtePool, updRevMap)
-      ) (poolD, Mp.empty) $ Mp.toList ctxtB.functionSlots
+      ) (poolE, Mp.empty) $ Mp.toList ctxtB.functionSlots
   in
-  Right $ ctxtB { constantPool = poolE, cteMaps = ConstantMap txtRevMap dblRevMap i64RevMap fctRevMap fctSlotMap }
+  Right $ ctxtB { constantPool = poolF, cteMaps = ConstantMap txtRevMap dblRevMap i64RevMap fctRevMap fctSlotMap moduleSlotMap }
 
 
 -- Enter all related strings into the string table and build a raw fct ref.

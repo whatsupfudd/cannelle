@@ -63,5 +63,40 @@ popString context frame =
                   Left . StackError $ "@[popString] , heap ID " <> show heapID <> " is not a string."
         (IntSV, anInt) ->
           Right (frame { stack = newStack }, TE.encodeUtf8 . pack $ show anInt, False)
+        (GlobalHeapRefSV, aValue) ->
+          case context.tmpGlobalHeap V.!? fromIntegral aValue of
+            Just aHeapValue ->
+              case aHeapValue of
+                StringHE aStr -> Right (frame { stack = newStack }, aStr, False)
+                StringRefHE aStrID ->
+                  case context.constants V.!? fromIntegral aStrID of
+                    Just aCteValue -> case aCteValue of
+                      StringCte aStr -> Right (frame { stack = newStack }, aStr, False)
+                      _ -> Left . StackError $ "@[popString] GlobalHeapRefSV err, got unexpected constant: " <> show aCteValue <> "."
+                    Nothing -> Left . StackError $ "@[popString] GlobalHeapRefSV err, nothing at " <> show aStrID <> "."
+                _ -> Left . StackError $ "@[popString] GlobalHeapRefSV err, got unexpected value: " <> show aHeapValue <> "."
         (aType, _) ->
           Left . StackError $ "@[popString] invalid popped value of type " <> show aType <> " for string dereference."
+
+pop :: ExecFrame -> Either VmError (ExecFrame, StackValue)
+pop frame =
+  let
+    (mbTopValue, newStack) = case frame.stack of
+      [] -> (Nothing, [])
+      (topValue : rest) -> (Just topValue, rest)
+  in
+  case mbTopValue of
+    Nothing -> Left $ StackError "@[pop] Empty stack."
+    Just topValue -> Right (frame { stack = newStack }, topValue)
+
+
+pop2 ::ExecFrame -> Either VmError (ExecFrame, (StackValue, StackValue))
+pop2 frame =
+  pop frame >>= \(newFrame, aValue) ->
+    pop newFrame >>= \(newFrame2, bValue) ->
+      Right (newFrame2, (aValue, bValue))
+
+
+push :: ExecFrame -> StackValue -> ExecFrame
+push frame value =
+  frame { stack = value : frame.stack }

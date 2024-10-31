@@ -52,6 +52,7 @@ showConstantValue (ArrayCte array) = "ArrayCte: " <> show array
 showConstantValue (TupleCte struct) = "TupleCte: " <> show struct
 showConstantValue (FunctionRefRaw moduleID labelID returnTypeID argTypeID argNameIDs) = "FunctionRefRaw: " <> show moduleID <> " " <> show labelID <> " " <> show returnTypeID <> " " <> show argTypeID <> " " <> show argNameIDs
 showConstantValue (VerbatimCte _ str) = "VerbatimCte: " <> show str
+showConstantValue (ModuleRefRaw labelID) = "ModuleRefRaw: " <> show labelID
 
 
 cantMaginNbr :: Int32
@@ -179,6 +180,7 @@ getAConstantV1 = Bg.label "getAConstantV1" $ do
     cteValKind (FunctionRef _) = 12
     cteValKind (FunctionRefRaw {}) = 13
     cteValKind (ModuleRef _) = 14
+    cteValKind (ModuleRefRaw _) = 15
   -}
   case kind of
     1 -> do    -- Verbatim
@@ -211,6 +213,8 @@ getAConstantV1 = Bg.label "getAConstantV1" $ do
       nbrArgs <- Bg.getInt32be
       argNameIDs <- mapM (const Bg.getInt32be) [1..nbrArgs]
       pure $ FunctionRefRaw moduleID labelID returnTypeID argTypeID argNameIDs
+    15 ->
+      ModuleRefRaw <$> Bg.getInt32be
     _ -> fail $ "Invalid constant kind: " <> show kind
 
 
@@ -234,6 +238,8 @@ putAConstantV1 constant = do
       Bp.putInt32be argTypeID
       Bp.putInt32be (fromIntegral $ length argNameIDs)
       mapM_ Bp.putInt32be argNameIDs
+    ModuleRefRaw labelID -> do
+      Bp.putInt32be labelID
 
 
 getDefinitionsV1 :: V.Vector ConstantValue -> Bg.Get (V.Vector FunctionDefTpl)

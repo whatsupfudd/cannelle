@@ -43,6 +43,8 @@ dependencies:
   - deepseq
   # For binary parsing:
   - binary
+  # For float/word32 conversion:
+  - reinterpret-cast
 
 
 default-extensions:

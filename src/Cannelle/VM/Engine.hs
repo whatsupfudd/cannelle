@@ -15,14 +15,15 @@ import qualified Data.Vector as V
 import Cannelle.VM.Context
 import Cannelle.VM.OpCodes
 import Data.List (find)
-import Cannelle.VM.OpImplA (buildOpTable, makeOpCode)
+import Cannelle.VM.OpImpl (buildOpTable)
+import Cannelle.VM.OpImpl.Support (makeOpCode)
 
 
 newtype ExecResult = ExecResult VmContext
 
 
-execModule :: VMModule -> Maybe MainText -> IO (Either String ExecResult)
-execModule vmModule mbStartName =
+execModule :: VMModule -> HeapEntry -> Maybe MainText -> IO (Either String ExecResult)
+execModule vmModule params mbStartName =
   let
     mainFunction = fromMaybe "$topOfModule" mbStartName
   in
@@ -30,9 +31,10 @@ execModule vmModule mbStartName =
     Nothing -> pure . Left $ "@[execModule] no entry function (topOfModule) found."
     Just bootFunction ->
       let
+        initHeap = V.cons params $ V.replicate (bootFunction.heapSize - 1) VoidHE
         bootFrame = ExecFrame {
             stack = []
-            , heap = V.replicate bootFunction.heapSize VoidHE
+            , heap = initHeap
             , pc = 0, flags = NoFlag
             , function = bootFunction
             , returnValue = (Nothing, Nothing)
@@ -42,6 +44,7 @@ execModule vmModule mbStartName =
                   , frameStack = bootFrame :| []
                   , outStream = BS.empty
                   , modules = V.singleton vmModule, constants = vmModule.constants
+                  , tmpGlobalHeap = V.empty
               }
       in do
       putStrLn "@[execModule] starting..."
@@ -67,7 +70,10 @@ fakeExecModule vmModule =
           }
         , returnValue = (Nothing, Nothing)
       }
-    ctxt = VmContext { status = Init, frameStack = fakeFrame :| [], outStream = BS.empty, modules = V.singleton vmModule, constants = vmModule.constants }
+    ctxt = VmContext { status = Init, frameStack = fakeFrame :| []
+              , outStream = BS.empty, modules = V.singleton vmModule
+              , constants = vmModule.constants, tmpGlobalHeap = V.empty
+          }
     entryPoint = "$main"
     moduleID = 0
     -- TODO: have a proper selection for modules.
@@ -159,7 +165,9 @@ doVM context =
               doByteCodeVM nCtxt newFrame opcodes
             else
               pure $ Right nCtxt { status = Halted }
-          Left err -> pure . Left $ analyzeVmError err heap stack
+          Left err -> do
+            putStrLn $ "@[doVM] ctx outstream: " <> show inCtxt.outStream
+            pure . Left $ analyzeVmError err heap stack
 
 
 analyzeVmError :: VmError -> p1 -> p2 -> String

@@ -27,13 +27,13 @@ data Show subCtxtT => CompContext subCtxtT = CompContext {
     , spitFctID :: Int32
     , curFctDef :: NonEmpty CompFunction
     , subContext :: subCtxtT
-    , functionSlots :: Mp.Map MainText (FunctionRef, Int32)
+    , moduleSlots :: Mp.Map Int32 Int32
+    , functionSlots :: Mp.Map (Int32, Int32) (FunctionRef, Int32)
     , importedFcts :: Mp.Map MainText [ (FctDefComp, Int32) ]
     , phaseBFct :: [ CompFunction ]
     , constantPool :: V.Vector ConstantValue
     , cteMaps :: ConstantMap
     {-- unused:
-    , moduleMap :: Mp.Map Int32 (MainText, Maybe Int32)
     , revModuleMap :: Mp.Map MainText [(Int32, Maybe Int32)]
     , functionAlias :: Mp.Map MainText Int32
     , appliedFcts :: Mp.Map MainText AppliedFunction
@@ -55,6 +55,7 @@ data ConstantMap = ConstantMap {
     , i64CteMap :: Mp.Map Int32 Int32
     , fctCteMap :: Mp.Map Int32 Int32
     , fctSlotMap :: Mp.Map Int32 Int32
+    , moduleMap :: Mp.Map Int32 Int32
   }
   deriving Show
 
@@ -74,7 +75,7 @@ data AppliedFunction = AppliedFunction {
 
 -- TODO: move to the RunTime module:
 data FunctionRef =
-  ExternalFR MainText Int32
+  ExternalFR Int32 MainText Int32
   | InternalFR Int32
   | UnresolvedFR
   deriving Show
@@ -216,7 +217,6 @@ type GenCompileResult subCtxt node = State (CompContext subCtxt) (Either CompErr
 -- Hugo-specific compilation context:
 data HugoCompileCtxt = HugoCompileCtxt {
     internalTemplates :: Mp.Map MainText Int32
-    , externalTemplates :: Mp.Map MainText Int32
     , blocks :: Mp.Map MainText Int32
   }
   deriving Show

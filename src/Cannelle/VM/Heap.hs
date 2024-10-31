@@ -1,12 +1,20 @@
 module Cannelle.VM.Heap where
 
+import Data.Int (Int32)
 import qualified Data.Vector as V
 
 import Cannelle.VM.Context
 
 
 -- TODO: implement the clearHeap properly.
-clearHeap :: ExecFrame -> ExecFrame
-clearHeap frame =
+clearExecFrameHeap :: ExecFrame -> ExecFrame
+clearExecFrameHeap frame =
   frame { heap = V.empty }
 
+
+addHeapEntry :: VmContext -> HeapEntry -> (VmContext, Int32)
+addHeapEntry context heapEntry =
+  let
+    heapID = fromIntegral $ V.length context.tmpGlobalHeap
+  in
+  (context { tmpGlobalHeap = V.snoc context.tmpGlobalHeap heapEntry }, heapID)

@@ -73,7 +73,9 @@ library
       Cannelle.VM.Heap
       Cannelle.VM.Memory
       Cannelle.VM.OpCodes
-      Cannelle.VM.OpImplA
+      Cannelle.VM.OpImpl
+      Cannelle.VM.OpImpl.PartA
+      Cannelle.VM.OpImpl.Support
       Cannelle.VM.Stack
       Text.Ginger
       Text.PrintfA
@@ -102,6 +104,7 @@ library
     , parsec >=3.0 && <3.2
     , parser-combinators
     , regex-tdfa >=1.2.3 && <=1.4
+    , reinterpret-cast
     , safe ==0.3.*
     , scientific ==0.3.*
     , text >=1.2.3.1 && <2.1
@@ -147,6 +150,7 @@ executable cannelle
     , parser-combinators
     , process >=1.6.5.0 && <1.7
     , regex-tdfa >=1.2.3 && <=1.4
+    , reinterpret-cast
     , safe ==0.3.*
     , scientific ==0.3.*
     , text >=1.2.3.1 && <2.1
@@ -191,6 +195,7 @@ test-suite cannelle-test
     , parsec >=3.0 && <3.2
     , parser-combinators
     , regex-tdfa >=1.2.3 && <=1.4
+    , reinterpret-cast
     , safe ==0.3.*
     , scientific ==0.3.*
     , text >=1.2.3.1 && <2.1

@@ -79,7 +79,6 @@ addLiteral literal = do
 initHugoCompileCtxt :: HugoCompileCtxt
 initHugoCompileCtxt = HugoCompileCtxt {
   internalTemplates = Mp.empty
-  , externalTemplates = Mp.empty
   , blocks = Mp.empty
 }
 
@@ -100,13 +99,14 @@ getInternalTemplate label = pure 0
 getExternalTemplate :: MainText -> State FullCompContext Int32
 getExternalTemplate label = do
   labelID <- A.addStringConstant label
-  modify $ \ctx ->
-    let
-      updHugoCtxt = ctx.subContext { externalTemplates = Mp.insert label labelID ctx.subContext.externalTemplates }
-    in
-    ctx { subContext = updHugoCtxt }
-  pure labelID
-
+  ctx <- get
+  case Mp.lookup labelID ctx.moduleSlots of
+    Just templateID -> pure templateID
+    Nothing -> do
+      let
+        templateID = fromIntegral $ Mp.size ctx.moduleSlots + 2
+      modify $ \ctx -> ctx { moduleSlots = Mp.insert labelID templateID ctx.moduleSlots }
+      pure templateID
 
 {- TODO: registerWithContext creates a heap position to store the context at h[0], then pushes the context in the expr to h[0], and then reverts the value from h[p] back to h[0] at the end of the with statement.
 -}
@@ -284,10 +284,11 @@ compileRaw (IncludeST label expr) = do
 compileRaw (PartialST label expr) = do
   templateID <- getExternalTemplate label
   eiExpr <- compileExprRaw expr
+  fctID <- C.getFunctionSlot templateID "$topOfModule"
   case eiExpr of
     Left err -> pure $ Left err
     Right nExpr -> do
-      addStmt (PartialFS templateID nExpr)
+      addStmt (PartialFS templateID fctID nExpr)
 
 
 compileRaw (ReturnST expr) = do
@@ -433,7 +434,7 @@ compileExprRaw (ExprMethodAccess fields values) = do
 
 
 compileExprRaw (ExprFunctionCall funcName args) = do
-  functionID <- C.getFunctionSlot funcName
+  functionID <- C.getFunctionSlot 1 funcName
   rezA <- mapM compileExprRaw args
   case splitResults rezA of
     (Just err, _) -> pure $ Left err
@@ -447,7 +448,7 @@ compileExprRaw (ExprPipeline leftExpr rightExprs) = do
     Left err -> pure $ Left err
     Right nExpr -> do
       rezB <- mapM (\(FunctionApplication funcName args) -> do
-          functionID <- C.getFunctionSlot funcName
+          functionID <- C.getFunctionSlot 1 funcName
           -- TODO: check for errors in rezA.
           rezA <- mapM compileExprRaw args
           case splitResults rezA of

@@ -38,7 +38,8 @@ data FStatementCore =
   | DefineFS Int32 Int32 FStatement        -- ^ labelID, returnSize, body
   | BlockFS Int32 Int32 FExpression FStatement
   | IncludeFS Int32 FExpression
-  | PartialFS Int32 FExpression
+  -- templateID, fctID, context expression.
+  | PartialFS Int32 Int32 FExpression
   | ReturnFS FExpression
   | VarAssignFS AsngKind Int32 FExpression
   | ListFS [FStatement]

@@ -91,9 +91,6 @@ compile filePath rStatements =
             Left err ->
               pure . Left $ "@[compile] genCode err: " <> show err
             Right ctxB -> do
-              putStrLn $ "@[compile] ctxtB.functionSlots:\n" <> show ctxB.functionSlots
-              putStrLn $ "@[compile] ctxtB.subCtxt.externalTemplates:\n" <> show ctxB.subContext.externalTemplates
-              putStrLn $ "@[compile] ctxtB.constantPool:\n" <> show ctxB.constantPool
               pure . Right $ Ft.FileUnit {
                     name = Just . encodeUtf8 . pack $ filePath
                   , description = Nothing

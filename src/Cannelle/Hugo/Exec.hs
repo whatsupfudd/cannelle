@@ -29,7 +29,7 @@ exec fileUnit = do
       , externModules = Mp.empty
     }
   -- putStrLn $ "@[exec] vmModule: " <> show vmModule
-  rezE <- E.execModule vmModule Nothing
+  rezE <- E.execModule vmModule fakeHugoContext Nothing
   case rezE of
     Left err -> putStrLn $ "@[exec] error: " <> err
     Right (E.ExecResult outCtxt) -> do
@@ -42,3 +42,17 @@ fuCteToVmCte (Fu.StringP s) = C.StringCte s
 fuCteToVmCte (Fu.DoubleP d) = C.DoubleCte d
 fuCteToVmCte (Fu.ListP _ ctes) = C.ArrayCte $ V.toList $ V.map fuCteToVmCte ctes
 fuCteToVmCte (Fu.StructP _ ctes) = C.TupleCte $ V.toList $ V.map fuCteToVmCte ctes
+
+fakeHugoContext :: C.HeapEntry
+fakeHugoContext = C.StructV0 $ Mp.fromList [
+    ("Site", fakeSite)
+    , ("Param", C.ClosureHE 0)
+    , ("Title", C.StringHE "My Hugo Site")
+    , ("Type", C.StringHE "Page")
+    , ("Kind", C.StringHE "baseofb")
+  ]
+
+fakeSite :: C.HeapEntry
+fakeSite = C.StructV0 $ Mp.fromList [
+    ("Language", C.StructV0 $ Mp.fromList [ ("Lang", C.StringHE "en") ])
+  ]
