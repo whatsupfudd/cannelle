@@ -6,6 +6,7 @@ import Control.Monad (foldM)
 
 import Data.Char (chr)
 import Data.Int (Int32)
+import qualified Data.List.NonEmpty as Ne
 import Data.Maybe (isNothing, fromJust, fromMaybe)
 import qualified Data.Map as Mp
 import qualified Data.Vector as V
@@ -20,6 +21,20 @@ import qualified Cannelle.VM.Heap as H
 import Cannelle.VM.OpImpl.Support (makeOpCode)
 
 import qualified Cannelle.Hugo.NativeLib.All as Hl
+
+
+stackValToHeap :: VmContext -> ExecFrame -> StackValue -> HeapEntry
+stackValToHeap context frame (sKind, sValue) =
+  case sKind of
+    HeapRefSV -> frame.heap V.! fromIntegral sValue
+    GlobalHeapRefSV -> context.tmpGlobalHeap V.! fromIntegral sValue
+    ConstantRefSV -> StringRefHE sValue
+    StringSV -> StringHE . T.encodeUtf8 . T.pack $ "STR ID: " <> show sValue
+    IntSV -> IntHE sValue
+    BoolSV -> BoolHE (sValue == 1)
+    FloatSV -> FloatHE (wordToFloat $ fromIntegral sValue)
+    _ -> VoidHE
+
 
 -- The noOp should never happen.
 noOp :: OpImpl
@@ -37,7 +52,7 @@ cmpBoolImm context frame opWithArgs =
   case eiBool of
     Left (StackError aMsg) -> pure . Left $ StackError ("In CMP_BOOL_IMM, " <> aMsg)
     Right (newFrame, aBool) ->
-      pure $ Right (context, newFrame { flags = if aBool then TrueFlag else FalseFlag}, True)
+      pure $ Right (context, newFrame { flags = if aBool then TrueFlag else FalseFlag}, ContinueVO)
 
 
 jumpTrue :: OpImpl
@@ -48,9 +63,9 @@ jumpTrue context frame opWithArgs =
       Nothing ->
         pure . Left . MissingArgForOpcode $ makeOpCode opWithArgs
       Just newPC ->
-        pure $ Right (context, frame { pc = frame.pc + fromIntegral newPC }, True)
+        pure $ Right (context, frame { pc = frame.pc + fromIntegral newPC }, ContinueVO)
   else
-    pure $ Right (context, frame, True)
+    pure $ Right (context, frame, ContinueVO)
 
 
 jumpAlways :: OpImpl
@@ -60,7 +75,7 @@ jumpAlways context frame opWithArgs =
     Nothing ->
       pure . Left . MissingArgForOpcode $ makeOpCode opWithArgs
     Just newPC ->
-      pure $ Right (context, frame { pc = frame.pc + fromIntegral newPC }, True)
+      pure $ Right (context, frame { pc = frame.pc + fromIntegral newPC }, ContinueVO)
 
 
 -- Stack access:
@@ -72,7 +87,7 @@ pushIntImm context frame opWithArgs =
       pure . Left . MissingArgForOpcode $ makeOpCode opWithArgs
     Just anInt ->
       -- push anInt to stack.
-      pure $ Right (context, frame { stack = (IntSV, anInt) : frame.stack }, True)
+      pure $ Right (context, frame { stack = (IntSV, anInt) : frame.stack }, ContinueVO)
 
 
 pushConst :: OpImpl
@@ -91,7 +106,7 @@ pushConst context frame opWithArgs =
         Nothing -> pure . Left . StackError $ "Constant ID " <> show constID <> " not found."
         Just aValue -> do
           putStrLn $ "@[pushConst] push " <> show aValue <> " => " <> maybe "<nothing>" show constant
-          pure $ Right (context, S.push frame aValue, True)
+          pure $ Right (context, S.push frame aValue, ContinueVO)
 
 
 -- TODO: review if there is a need for a pushConstImm.
@@ -122,7 +137,7 @@ reduce context frame opWithArgs =
               newStr = if isQuoted then "\"" <> aStr <> "\"" else aStr
               newStream = context.outStream <> newStr
             in
-            pure $ Right (context { outStream = newStream }, newFrame, True)
+            pure $ Right (context { outStream = newStream }, newFrame, ContinueVO)
     else
       case context.constants V.!? fromIntegral (fromJust fctID) of
         Nothing ->
@@ -137,7 +152,32 @@ reduce context frame opWithArgs =
                       pure . Left . StackError $ "@[reduce] internal function: no constant for labelID " <> show labelID <> "."
                     Just (StringCte aLabel) ->
                       -- TODO: implement internal function call.
-                      pure . Left . StackError $ "@[reduce] internal function " <> show aLabel <> " not implemented."
+                      let
+                        curModule = context.modules V.! 0
+                      in
+                      case Mp.lookup aLabel curModule.fctMap of
+                        Nothing ->
+                          pure . Left . StackError $ "@[reduce] internal function " <> show aLabel <> " not known."
+                        Just fctSlotID ->
+                          case curModule.functions V.!? fctSlotID of
+                            Nothing ->
+                              pure . Left . StackError $ "@[reduce] internal function " <> show aLabel <> " not found."
+                            Just aFctDef ->
+                              case S.popArguments frame (fromIntegral $ fromJust arity) of
+                                Left (StackError aMsg) -> pure . Left $ StackError ("@[reduce] internal fct, pop err on args: " <> aMsg)
+                                Right (newFrame, args) ->
+                                  let
+                                    params = V.map (stackValToHeap context frame) (V.fromList args)
+                                    callFrame = ExecFrame {
+                                      stack = []
+                                      , heap = H.initHeap params aFctDef.heapSize
+                                      , pc = 0, flags = NoFlag
+                                      , function = aFctDef
+                                      , returnValue = (Nothing, Nothing)
+                                    }
+                                  in do
+                                  putStrLn $ "@[reduce] push new frame, fct: " <> show callFrame.function.fname
+                                  pure $ Right (context , newFrame, PushFrameVO callFrame)
                 1 -> -- HugoLib function.
                   case context.constants V.!? fromIntegral labelID of
                     Nothing ->
@@ -154,11 +194,11 @@ reduce context frame opWithArgs =
                             "default" ->
                               case Hl.defaultHL context newFrame args of
                                 Left err -> pure $ Left err
-                                Right (rCtxt, rFrame) -> pure $ Right (rCtxt, rFrame, True)
+                                Right (rCtxt, rFrame) -> pure $ Right (rCtxt, rFrame, ContinueVO)
                             "index" ->
                               case Hl.indexHL context newFrame args of
                                 Left err -> pure $ Left err
-                                Right (rCtxt, rFrame) -> pure $ Right (rCtxt, rFrame, True)
+                                Right (rCtxt, rFrame) -> pure $ Right (rCtxt, rFrame, ContinueVO)
                             _ ->
                               pure . Left . StackError $ "@[reduce] HugoLib function, " <> show aLabel <> " not implemented."
                     aMiscVal ->
@@ -174,7 +214,7 @@ reduce context frame opWithArgs =
                         Just (StringCte aLabel) -> do
                           putStrLn $ "@[reduce] skipping: " <> show aLabel <> ".$topOfModule fct call."
                           -- TODO: implement external module function call. For now, push an empty string.
-                          pure $ Right (context, S.push frame (GlobalHeapRefSV, 0), True)
+                          pure $ Right (context, S.push frame (GlobalHeapRefSV, 0), ContinueVO)
                     _ ->
                       pure . Left . StackError $ "@[reduce] function resolution: unexpected constant: " <> show aFct <> "."
             _ ->
@@ -191,7 +231,7 @@ reduce context frame opWithArgs =
             newStack = drop (fromIntegral $ fromJust arity) frame.stack
             newFrame = frame { function = newFct, stack = newStack, pc = 0 }
           in
-          pure $ Right (context, newFrame, True)
+          pure $ Right (context, newFrame, ContinueVO)
         else
           let
             fakeType = case n of
@@ -211,7 +251,7 @@ reduce context frame opWithArgs =
                 ((HeapRefSV, heapPos) : frame.stack, frame.heap V.++ V.singleton (StringHE "test-string"))
           in do
           putStrLn $ "@[doOpcode] unknown fct:" <> show n <> ", arity: " <> show arity <> "."
-          pure $ Right (context, frame { stack = newStack, heap = newHeap }, True)
+          pure $ Right (context, frame { stack = newStack, heap = newHeap }, ContinueVO)
 -}
 
 -- Heap management (save new heap ID to register):
@@ -234,11 +274,11 @@ arrConcat context frame opWithArgs =
         newHeap = frame.heap V.++ V.singleton (StringHE concatStr)
         newStack = (HeapRefSV, heapPos) : postFrame.stack
       in
-      pure $ Right (context, postFrame { stack = newStack, heap = newHeap }, True)
+      pure $ Right (context, postFrame { stack = newStack, heap = newHeap }, ContinueVO)
 
 halt :: OpImpl
 halt context frame opWithArgs =
-  pure $ Right (context { status = Halted }, frame, False)
+  pure $ Right (context { status = Halted }, frame, HaltVO)
 
 
 getField :: OpImpl
@@ -305,7 +345,7 @@ getField context frame opWithArgs =
                   let
                     (newContext, heapID) = H.addHeapEntry context aValue
                   putStrLn $ "@[getField] push glob heapID: " <> show heapID <> ", field: " <> show aFieldName <> ", value: " <> show aValue
-                  pure $ Right (newContext, S.push newFrame (GlobalHeapRefSV, heapID), True)
+                  pure $ Right (newContext, S.push newFrame (GlobalHeapRefSV, heapID), ContinueVO)
             _ ->
               pure . Left $ StackError ("[@getField] HeapRefSV err, no value at " <> show structValue <> ".")
 
@@ -313,7 +353,9 @@ getField context frame opWithArgs =
 -- TODO: implement proper RETURN.
 fctReturn :: OpImpl
 fctReturn context frame opWithArgs =
-  pure $ Right (context { status = Halted }, frame, False)
+    -- TODO: transfer the return value to the caller.
+    pure $ Right (context, frame, PopFrameVO)
+
 
 heapLoad :: OpImpl
 heapLoad context frame opWithArgs =
@@ -323,7 +365,7 @@ heapLoad context frame opWithArgs =
       pure . Left . MissingArgForOpcode $ makeOpCode opWithArgs
     Just heapID -> do
       putStrLn $ "@[heapLoad] push heapID " <> show heapID
-      pure $ Right (context, S.push frame (HeapRefSV, heapID), True)
+      pure $ Right (context, S.push frame (HeapRefSV, heapID), ContinueVO)
 
 
 heapStore :: OpImpl
@@ -361,7 +403,7 @@ heapStore context frameA opWithArgs =
           case opRez of
             Left err -> pure $ Left err
             Right (frameC, nHeapValue) ->
-              pure $ Right (context, frameC { heap = frameC.heap V.// [(fromIntegral heapID, nHeapValue)] }, True)
+              pure $ Right (context, frameC { heap = frameC.heap V.// [(fromIntegral heapID, nHeapValue)] }, ContinueVO)
 
 
 callMethod :: OpImpl
@@ -377,9 +419,9 @@ callMethod context frame opWithArgs =
           Right (newFrame, (aKind, aValue)) ->
             case aKind of
               HeapRefSV ->
-                pure $ Right (context, S.push newFrame (aKind, aValue), True)
+                pure $ Right (context, S.push newFrame (aKind, aValue), ContinueVO)
               GlobalHeapRefSV ->
-                pure $ Right (context, S.push newFrame (aKind, aValue), True)
+                pure $ Right (context, S.push newFrame (aKind, aValue), ContinueVO)
               _ ->
                 pure . Left $ StackError ("[@callMethod] stack err, got kind: " <> show aKind <> ".")
       else
@@ -404,7 +446,7 @@ callMethod context frame opWithArgs =
                         let
                           (nContext, newValue) = H.addHeapEntry context (StringHE "test-string")
                         in
-                        pure $ Right (nContext, S.push recFrame (GlobalHeapRefSV, newValue), True)
+                        pure $ Right (nContext, S.push recFrame (GlobalHeapRefSV, newValue), ContinueVO)
                       _ ->
                         pure . Left $ StackError ("[@callMethod] GlobalHeapRefSV err, got unexpected value: " <> show receiver <> ".")
                   _ ->
@@ -421,25 +463,25 @@ forceToString context frame opWithArgs =
         ConstantRefSV ->
           case context.constants V.!? fromIntegral aValue of
             Just aCteValue -> case aCteValue of
-              StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, True)
+              StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, ContinueVO)
               _ -> pure . Left $ StackError ("[@forceToString] ConstantRefSV err, got unexpected constant: " <> show aCteValue <> ".")
             Nothing -> pure . Left $ StackError ("[@forceToString] ConstantRefSV err, nothing at " <> show aValue <> ".")
         StringSV ->
-          pure $ Right (context, S.push newFrame stackVal, True)
+          pure $ Right (context, S.push newFrame stackVal, ContinueVO)
         HeapRefSV ->
           case newFrame.heap V.!? fromIntegral aValue of
             Just aHeapValue ->
               case aHeapValue of
                 StringHE aStr ->
-                  pure $ Right (context, S.push newFrame stackVal, True)
+                  pure $ Right (context, S.push newFrame stackVal, ContinueVO)
                 StringRefHE aStrID ->
                   case context.constants V.!? fromIntegral aStrID of
                     Just aCteValue -> case aCteValue of
-                      StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, True)
+                      StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, ContinueVO)
                       _ -> pure . Left $ StackError ("[@forceToString] ConstantRefHE err, got unexpected constant: " <> show aCteValue <> ".")
                     Nothing -> pure . Left $ StackError ("[@forceToString] ConstantRefHE err, nothing at " <> show aStrID <> ".")
                 VoidHE ->
-                  pure $ Right (context, S.push newFrame (GlobalHeapRefSV, 0), True)
+                  pure $ Right (context, S.push newFrame (GlobalHeapRefSV, 0), ContinueVO)
                 _ ->
                   pure . Left $ StackError ("[@forceToString] HeapRefSV err, got unexpected value: " <> show aHeapValue <> ".")
             Nothing ->
@@ -449,11 +491,11 @@ forceToString context frame opWithArgs =
             Just aHeapValue ->
               case aHeapValue of
                 StringHE aStr ->
-                  pure $ Right (context, S.push newFrame stackVal, True)
+                  pure $ Right (context, S.push newFrame stackVal, ContinueVO)
                 StringRefHE aStrID ->
                   case context.constants V.!? fromIntegral aStrID of
                     Just aCteValue -> case aCteValue of
-                      StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, True)
+                      StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, ContinueVO)
                       _ -> pure . Left $ StackError ("[@forceToString] ConstantRefHE err, got unexpected constant: " <> show aCteValue <> ".")
                     Nothing -> pure . Left $ StackError ("[@forceToString] ConstantRefHE err, nothing at " <> show aStrID <> ".")
                 _ ->

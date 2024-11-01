@@ -84,7 +84,7 @@ partB ctxtB =
         (updCtePool, updRevMap)
       ) (poolC, Mp.empty) $ Mp.toList ctxtB.moduleSlots
     (!poolE, !fctRevMap) = V.foldl (\(ctePool, revMap) (fctID, (moduleID, labelID, returnID, argIDs, argNameIDs)) -> let
-          nCteID = nbrInternalFcts + fromIntegral (V.length ctePool)
+          nCteID = fromIntegral (V.length ctePool)
           updCtePool = V.snoc ctePool (FunctionRefRaw moduleID 
                       (fromMaybe 0 $ Mp.lookup labelID txtRevMap)
                       (fromMaybe 0 $ Mp.lookup returnID txtRevMap)
@@ -96,7 +96,7 @@ partB ctxtB =
       ) (poolD, Mp.empty) ctxtB.cteEntries.fctRefCte
     -- move referred functions:
     (!poolF, !fctSlotMap) = foldl (\(ctePool, revMap) ((moduleID, labelID), (kind, fctID)) -> let
-          nCteID = fromIntegral $ V.length ctePool
+          nCteID = fromIntegral (V.length ctePool)
           updLabelID = case Mp.lookup labelID txtRevMap of
             Just txtID -> txtID
             Nothing -> error $ "@[partB] functionSlots: unexpected labelID for " <> show labelID <> " (id: " <> show fctID <> ")"

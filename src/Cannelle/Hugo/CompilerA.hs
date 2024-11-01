@@ -251,10 +251,10 @@ compileRaw (DefineST label body) = do
 
 -- Creates a new function, and then runs it in place.
 compileRaw (BlockST label contextExpr stmt) = do
-  eilabelID <- C.pushFunctionComp label
-  case eilabelID of
+  eiFctID <- C.pushFunctionComp label
+  case eiFctID of
     Left err -> pure $ Left err
-    Right labelID -> do
+    Right fctID -> do
       -- TODO: figure out how to implement the local context variable.
       localCtxt <- registerBlock label
       eiExpr <- compileExprRaw contextExpr
@@ -269,8 +269,8 @@ compileRaw (BlockST label contextExpr stmt) = do
                 C.popFunctionVoid
                 pure $ Left err
               Right nBody -> do
-                C.popFunctionComp labelID 0 [nBody]
-                addStmt (BlockFS labelID localCtxt nExpr nBody)
+                C.popFunctionComp fctID 0 [nBody]
+                addStmt (BlockFS fctID localCtxt nExpr nBody)
 
 
 compileRaw (IncludeST label expr) = do

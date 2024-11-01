@@ -91,6 +91,10 @@ compile filePath rStatements =
             Left err ->
               pure . Left $ "@[compile] genCode err: " <> show err
             Right ctxB -> do
+              putStrLn $ "@[compile] ctx.fctRefCte: " <> show ctxB.cteEntries.fctRefCte
+              putStrLn $ "@[compile] ctx.cteMaps.txtCteMap: " <> show ctxB.cteMaps.txtCteMap
+              putStrLn $ "@[compile] ctx.cteMaps.fctCteMap: " <> show ctxB.cteMaps.fctCteMap
+              putStrLn $ "@[compile] ctx.cteMaps.fctSlotMap: " <> show ctxB.cteMaps.fctSlotMap
               pure . Right $ Ft.FileUnit {
                     name = Just . encodeUtf8 . pack $ filePath
                   , description = Nothing

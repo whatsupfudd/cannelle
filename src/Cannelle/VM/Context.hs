@@ -25,7 +25,7 @@ data VmError =
   deriving Show
 
 
-type OpImpl = VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, Bool))
+type OpImpl = VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, VmOperation))
 
 
 data VmContext = VmContext {
@@ -80,6 +80,7 @@ data FirstOrderType =
   | StringTO
   deriving Show
 
+
 data SecondOrderType =
   FirstOrderSO FirstOrderType
   -- For containers (Array, Tuple, etc).
@@ -133,6 +134,15 @@ data ExecFrame = ExecFrame {
   }
   deriving Show
 
+
+data VmOperation =
+  PushFrameVO ExecFrame
+  | PopFrameVO
+  | HaltVO
+  | ContinueVO
+  deriving Show
+
+
 data CompareFlags =
   NoFlag
   | EqFlag
@@ -170,7 +180,7 @@ data ModuledDefinition = ModuledDefinition {
 -- representation of a runtime module:
 data VMModule = VMModule {
     functions :: V.Vector FunctionDef
-    , fctMap :: Mp.Map MainText Int32
+    , fctMap :: Mp.Map MainText Int
     , constants :: V.Vector ConstantValue
     , externModules :: Mp.Map Text ModuledDefinition
   }

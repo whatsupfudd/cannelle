@@ -14,9 +14,11 @@ import qualified Data.Vector as V
 
 import Cannelle.VM.Context
 import Cannelle.VM.OpCodes
+import qualified Cannelle.VM.Heap as H
 import Data.List (find)
 import Cannelle.VM.OpImpl (buildOpTable)
 import Cannelle.VM.OpImpl.Support (makeOpCode)
+import Text.Parsec (putState)
 
 
 newtype ExecResult = ExecResult VmContext
@@ -31,10 +33,10 @@ execModule vmModule params mbStartName =
     Nothing -> pure . Left $ "@[execModule] no entry function (topOfModule) found."
     Just bootFunction ->
       let
-        initHeap = V.cons params $ V.replicate (bootFunction.heapSize - 1) VoidHE
+        -- initHeap = V.cons params $ V.replicate (bootFunction.heapSize - 1) VoidHE
         bootFrame = ExecFrame {
             stack = []
-            , heap = initHeap
+            , heap = H.initHeap (V.singleton params) bootFunction.heapSize
             , pc = 0, flags = NoFlag
             , function = bootFunction
             , returnValue = (Nothing, Nothing)
@@ -142,29 +144,50 @@ doVM context =
       doByteCodeVM context curFrame opcodes
   where
   doByteCodeVM :: VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either String VmContext)
-  doByteCodeVM inCtxt frame opcodes =
+  doByteCodeVM !inCtxt !frame !opcodes =
     case opcodes V.!? frame.pc of
       Nothing -> pure $ Right inCtxt { status = Halted }
       Just anOp ->
         let
-          opLength = 1 + opParCount (toEnum $ fromIntegral anOp)
-          opWithArgs = if opLength == 1 then V.singleton anOp else V.slice frame.pc opLength opcodes
+          !opLength = 1 + opParCount (toEnum $ fromIntegral anOp)
+          !opWithArgs = if opLength == 1 then V.singleton anOp else V.slice frame.pc opLength opcodes
         in
         let
           !opTable = buildOpTable
         in do
         eiRez <- doOpcode opTable inCtxt frame opWithArgs
         case eiRez of
-          Right (retCtxt, retFrame, isRunning) -> do
-            let
-              -- TODO: find a better way to manage the frame/context updates.
-              newFrame = retFrame { pc = frame.pc + opLength }
-              nCtxt = retCtxt { frameStack =  newFrame <| retCtxt.frameStack }
-            -- in
-            if isRunning then
-              doByteCodeVM nCtxt newFrame opcodes
-            else
-              pure $ Right nCtxt { status = Halted }
+          Right (!retCtxt, !retFrame, !voOper) -> do
+            case voOper of
+              ContinueVO ->
+                doByteCodeVM retCtxt (retFrame { pc = frame.pc + opLength }) opcodes
+              PushFrameVO newFrame ->
+                let
+                  !updRetFrame = retFrame { pc = frame.pc + opLength }
+                  !topStack Ne.:| !restStack = retCtxt.frameStack
+                  !nCtxt = retCtxt { frameStack = newFrame Ne.<| (updRetFrame Ne.:| restStack) }
+                in
+                case newFrame.function.body of
+                  NativeCode ref -> pure . Left $ "@[doVM] trying to run a native function: " <> ref <> "."
+                  ByteCode opcodes ->
+                    doByteCodeVM nCtxt newFrame opcodes
+              PopFrameVO ->
+                let
+                  !topStack Ne.:| !restStack = retCtxt.frameStack
+                in do
+                -- putStrLn $ "@[doVM] popping frame, stack: " <> show restStack
+                case restStack of
+                  [] -> pure . Right $ retCtxt { status = Halted }
+                  newTop : restB ->
+                    let
+                      !nCtxt = retCtxt { frameStack = newTop Ne.:| restB }
+                    in
+                    case newTop.function.body of
+                      NativeCode ref -> pure . Left $ "@[doVM] trying to return to a native function: " <> ref <> "."
+                      ByteCode opcodes ->
+                        doByteCodeVM nCtxt newTop opcodes
+              HaltVO ->
+                pure $ Right retCtxt { status = Halted }
           Left err -> do
             putStrLn $ "@[doVM] ctx outstream: " <> show inCtxt.outStream
             pure . Left $ analyzeVmError err heap stack
@@ -180,7 +203,7 @@ analyzeVmError err heap stack =
     StackError msg -> "Stack error: " <> msg
 
 
-doOpcode :: V.Vector OpImpl -> VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, Bool))
+doOpcode :: V.Vector OpImpl -> VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, VmOperation))
 doOpcode opTable context frame opWithArgs =
   let
     mbOpID = opWithArgs V.!? 0

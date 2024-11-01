@@ -58,6 +58,8 @@ data FExpression = FExpression {
   deriving (Show, Eq)
 
 
+-- TODO: create a local/external function ID for FunctionCallEC, ClosureEC and ClosureMethodAccessEC
+-- to fetch explicitely from the right rev-map at phase C.
 data FExpressionCore = 
   LiteralEC FLiteral
   | VariableEC VarKind Int32

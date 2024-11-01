@@ -1,6 +1,7 @@
 module Cannelle.Hugo.Exec where
 
 import qualified Data.Vector as V
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Map as Mp
 
@@ -36,7 +37,7 @@ exec fileUnit = do
     Left err -> putStrLn $ "@[exec] error: " <> err
     Right (E.ExecResult outCtxt) -> do
       putStrLn "@[exec] done.\n"
-      putStrLn $ "@[exec] output: " <> show outCtxt.outStream
+      putStrLn $ "@[exec] output:\n" <> (T.unpack . T.decodeUtf8) outCtxt.outStream <> "\n"
 
 
 fuCteToVmCte :: Fu.ConstantTpl -> C.ConstantValue

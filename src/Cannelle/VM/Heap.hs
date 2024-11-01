@@ -5,6 +5,9 @@ import qualified Data.Vector as V
 
 import Cannelle.VM.Context
 
+initHeap :: V.Vector HeapEntry -> Int -> V.Vector HeapEntry
+initHeap params hSize = params <> V.replicate (hSize - V.length params) VoidHE
+
 
 -- TODO: implement the clearHeap properly.
 clearExecFrameHeap :: ExecFrame -> ExecFrame

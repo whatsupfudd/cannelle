@@ -5,6 +5,7 @@ import Control.Monad (foldM)
 
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map as Mp
+import qualified Data.Vector as V
 
 import Cannelle.Common.Error (CompError (..), concatErrors, splitResults)
 -- import Cannelle.VM.OpCodes
@@ -188,22 +189,28 @@ genStmtOps stmt@(FStatement { as = DefineFS labelID returnSize body }) = do
 
 
 -- This is only a matter of setting up the context for the function call, and then calling it.
-genStmtOps stmt@(FStatement { as = BlockFS labelID localCtxt contextExpr body }) = do
+genStmtOps stmt@(FStatement { as = BlockFS fctID localCtxt contextExpr body }) = do
   -- TODO: create a new block context, push it on the stack.
   ctx <- get
-  case Mp.lookup labelID ctx.cteMaps.fctCteMap of
+  case Mp.lookup (fromIntegral fctID) ctx.cteMaps.fctCteMap of
     Nothing ->
-      pure . Left $ CompError [(0, "BlockFS: Function slot not found: " <> show labelID)]
+      pure . Left $ CompError [(0, "@[blockFS]: function slot not found: " <> show fctID)]
     Just fctID -> do
-      C.pushFunctionV2 fctID
+      -- C.pushFunctionV2 fctID
       -- TODO: push the new location of the global context on the context-compile stack.
-      A.emitOp $ LOAD_HEAP 0
-      A.emitOp $ STORE_HEAP localCtxt
+      if localCtxt /= 0 then do
+        A.emitOp $ LOAD_HEAP 0
+        A.emitOp $ STORE_HEAP localCtxt
+      else
+        pure $ Right ()
       genExprOps contextExpr
       A.emitOp $ REDUCE fctID 1
-      C.popFunctionVoid
-      A.emitOp $ LOAD_HEAP localCtxt
-      A.emitOp $ STORE_HEAP 0
+      -- C.popFunctionVoid
+      if localCtxt /= 0 then do
+        A.emitOp $ LOAD_HEAP localCtxt
+        A.emitOp $ STORE_HEAP 0
+      else
+        pure $ Right ()
   -- TODO: pop the context-compile stack.
 
 
@@ -373,8 +380,9 @@ genExprOps expr@(FExpression { ae = FunctionCallEC funcID exprs }) = do
     Nothing -> do
       ctx <- get
       case Mp.lookup funcID ctx.cteMaps.fctSlotMap of
-        Nothing -> pure . Left $ CompError [(0, "FunctionCallEC: Function slot not found: " <> show funcID)]
-        Just fctSlotID -> A.emitOp $ REDUCE fctSlotID (fromIntegral . length $ exprs)
+        Nothing -> pure . Left $ CompError [(0, "@[FunctionCallEC]: Function slot not found: " <> show funcID)]
+        Just fctSlotID ->
+          A.emitOp $ REDUCE fctSlotID (fromIntegral . length $ exprs)
     Just err -> pure . Left $ err
 
 
@@ -393,7 +401,7 @@ genExprOps expr@(FExpression { ae = ClosureEC funcID exprs }) = do
   case concatErrors rezA of
     Nothing -> do
       ctx <- get
-      case Mp.lookup funcID ctx.cteMaps.fctCteMap of
+      case Mp.lookup funcID ctx.cteMaps.fctSlotMap of
         Nothing -> pure . Left $ CompError [(0, "ClosureEC: Function slot not found: " <> show funcID)]
         Just fctSlotID -> A.emitOp $ REDUCE fctSlotID (succ . fromIntegral . length $ exprs)
     Just err -> pure . Left $ err
