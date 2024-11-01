@@ -1,5 +1,7 @@
 module Cannelle.VM.Stack where
 
+import Control.Monad (foldM)
+
 import qualified Data.ByteString as Bs
 import Data.Text (pack)
 import qualified Data.Text.Encoding as TE
@@ -100,3 +102,11 @@ pop2 frame =
 push :: ExecFrame -> StackValue -> ExecFrame
 push frame value =
   frame { stack = value : frame.stack }
+
+
+popArguments :: ExecFrame -> Int -> Either VmError (ExecFrame, [StackValue])
+popArguments frame nbrArgs =
+  foldM (\(curFrame, accValues) _ -> case pop curFrame of
+          Left err -> Left err
+          Right (newFrame, aValue) -> Right (newFrame, aValue : accValues)
+        ) (frame, []) [1..nbrArgs]

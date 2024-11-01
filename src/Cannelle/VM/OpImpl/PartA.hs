@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Monad law, left identity" #-}
 module Cannelle.VM.OpImpl.PartA where
 
 import Control.Monad (foldM)
@@ -17,6 +19,7 @@ import qualified Cannelle.VM.Stack as S
 import qualified Cannelle.VM.Heap as H
 import Cannelle.VM.OpImpl.Support (makeOpCode)
 
+import qualified Cannelle.Hugo.NativeLib.All as Hl
 
 -- The noOp should never happen.
 noOp :: OpImpl
@@ -104,23 +107,80 @@ reduce context frame opWithArgs =
   in
   if isNothing fctID || isNothing arity then
     pure . Left . MissingArgForOpcode $ makeOpCode opWithArgs
-  else do
-    case fromJust fctID of
-      0 ->
-        -- spit: pop last element from stack, sent it to output stream.
-        let
-          eiDerefStr = S.popString context frame
-        in
-        case eiDerefStr of
-            Left (StackError aMsg) -> pure . Left $ StackError ("@[reduce] spitString, popString err: " <> aMsg)
-            Right (newFrame, aStr, isQuoted) ->
-              -- putStrLn $ "@[doOpcode] spit: " <> unpack (TE.decodeUtf8 aStr)
-              -- TODO: quote a string value vs a verbatim-block.
-              let
-                newStr = if isQuoted then "\"" <> aStr <> "\"" else aStr
-                newStream = context.outStream <> newStr
-              in
-              pure $ Right (context { outStream = newStream }, newFrame, True)
+  else
+    if fromJust fctID == 0 then
+      -- the essential spit fct: pop last element from stack, sent it to output stream.
+      let
+        eiDerefStr = S.popString context frame
+      in
+      case eiDerefStr of
+          Left (StackError aMsg) -> pure . Left $ StackError ("@[reduce] spitString, popString err: " <> aMsg)
+          Right (newFrame, aStr, isQuoted) ->
+            -- putStrLn $ "@[doOpcode] spit: " <> unpack (TE.decodeUtf8 aStr)
+            -- TODO: quote a string value vs a verbatim-block.
+            let
+              newStr = if isQuoted then "\"" <> aStr <> "\"" else aStr
+              newStream = context.outStream <> newStr
+            in
+            pure $ Right (context { outStream = newStream }, newFrame, True)
+    else
+      case context.constants V.!? fromIntegral (fromJust fctID) of
+        Nothing ->
+          pure . Left . StackError $ "@[reduce] function resolution: no cte for " <> show (fromJust fctID) <> "."
+        Just aFct ->
+          case aFct of
+            FunctionRefRaw moduleID labelID returnTypeID argTypeID argNameIDs ->
+              case moduleID of
+                0 ->
+                  case context.constants V.!? fromIntegral labelID of
+                    Nothing ->
+                      pure . Left . StackError $ "@[reduce] internal function: no constant for labelID " <> show labelID <> "."
+                    Just (StringCte aLabel) ->
+                      -- TODO: implement internal function call.
+                      pure . Left . StackError $ "@[reduce] internal function " <> show aLabel <> " not implemented."
+                1 -> -- HugoLib function.
+                  case context.constants V.!? fromIntegral labelID of
+                    Nothing ->
+                      pure . Left . StackError $ "@[reduce] HugoLib function: no constant for labelID " <> show labelID <> "."
+                    Just (StringCte aLabel) ->
+                      -- TODO: access the libraries to find the function
+                      let
+                        eiArgs = S.popArguments frame (fromIntegral $ fromJust arity)
+                      in
+                      case eiArgs of
+                        Left (StackError aMsg) -> pure . Left $ StackError ("@[reduce] hugo.default fct, pop err: " <> aMsg)
+                        Right (newFrame, args) ->
+                          case aLabel of
+                            "default" ->
+                              case Hl.defaultHL context newFrame args of
+                                Left err -> pure $ Left err
+                                Right (rCtxt, rFrame) -> pure $ Right (rCtxt, rFrame, True)
+                            "index" ->
+                              case Hl.indexHL context newFrame args of
+                                Left err -> pure $ Left err
+                                Right (rCtxt, rFrame) -> pure $ Right (rCtxt, rFrame, True)
+                            _ ->
+                              pure . Left . StackError $ "@[reduce] HugoLib function, " <> show aLabel <> " not implemented."
+                    aMiscVal ->
+                      pure . Left . StackError $ "@[reduce] HugoLib function, " <> show aMiscVal <> " not implemented."
+                _ ->
+                  case context.constants V.!? fromIntegral moduleID of
+                    Nothing ->
+                      pure . Left . StackError $ "@[reduce] external function: no module at " <> show moduleID <> "."
+                    Just (ModuleRefRaw labelID) ->
+                      case context.constants V.!? fromIntegral labelID of
+                        Nothing ->
+                          pure . Left . StackError $ "@[reduce] function resolution: module " <> show moduleID <> " not implemented."
+                        Just (StringCte aLabel) -> do
+                          putStrLn $ "@[reduce] skipping: " <> show aLabel <> ".$topOfModule fct call."
+                          -- TODO: implement external module function call. For now, push an empty string.
+                          pure $ Right (context, S.push frame (GlobalHeapRefSV, 0), True)
+                    _ ->
+                      pure . Left . StackError $ "@[reduce] function resolution: unexpected constant: " <> show aFct <> "."
+            _ ->
+              pure . Left . StackError $ "@[reduce] function resolution: unexpected constant: " <> show aFct <> "."
+
+{- initial fake implementation:
       n ->
         let
           curModule = context.modules V.! 0
@@ -152,7 +212,7 @@ reduce context frame opWithArgs =
           in do
           putStrLn $ "@[doOpcode] unknown fct:" <> show n <> ", arity: " <> show arity <> "."
           pure $ Right (context, frame { stack = newStack, heap = newHeap }, True)
-
+-}
 
 -- Heap management (save new heap ID to register):
 arrConcat :: OpImpl
@@ -323,23 +383,21 @@ callMethod context frame opWithArgs =
               _ ->
                 pure . Left $ StackError ("[@callMethod] stack err, got kind: " <> show aKind <> ".")
       else
-        let
-          args = foldM (\(curFrame, accValues) _ -> case S.pop curFrame of
-                Left err -> Left err
-                Right (newFrame, aValue) -> Right (newFrame, aValue : accValues)
-              ) (frame, []) [1..nbrArgs]
-        in
-        case args of
+        -- TODO: fix the ordering of arguments vs receiver on the stack.
+        case S.pop frame of
           Left err -> pure $ Left err
-          Right (newFrame, argValues) -> do
-            putStrLn $ "@[callMethod] args: " <> show argValues
-            case S.pop newFrame of
+          Right (recFrame, (recKind, recValue)) ->
+            let
+              args = S.popArguments recFrame (fromIntegral nbrArgs)
+            in
+            case args of
               Left err -> pure $ Left err
-              Right (recFrame, (aKind, aValue)) ->
-                case aKind of
+              Right (newFrame, argValues) -> do
+                putStrLn $ "@[callMethod] args: " <> show argValues
+                case recKind of
                   GlobalHeapRefSV ->
                     let
-                      receiver = context.tmpGlobalHeap V.! fromIntegral aValue
+                      receiver = context.tmpGlobalHeap V.! fromIntegral recValue
                     in
                     case receiver of
                       ClosureHE aFctID ->
@@ -350,7 +408,7 @@ callMethod context frame opWithArgs =
                       _ ->
                         pure . Left $ StackError ("[@callMethod] GlobalHeapRefSV err, got unexpected value: " <> show receiver <> ".")
                   _ ->
-                    pure . Left $ StackError ("[@callMethod] stack err, got kind: " <> show aKind <> ".")
+                    pure . Left $ StackError ("[@callMethod] stack err, got kind: " <> show recKind <> ".")
 
 
 forceToString :: OpImpl
@@ -360,6 +418,12 @@ forceToString context frame opWithArgs =
     Left (StackError aMsg) -> pure . Left $ StackError ("[@forceToString] stack err: " <> aMsg)
     Right (newFrame, stackVal@(aKind, aValue)) ->
       case aKind of
+        ConstantRefSV ->
+          case context.constants V.!? fromIntegral aValue of
+            Just aCteValue -> case aCteValue of
+              StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, True)
+              _ -> pure . Left $ StackError ("[@forceToString] ConstantRefSV err, got unexpected constant: " <> show aCteValue <> ".")
+            Nothing -> pure . Left $ StackError ("[@forceToString] ConstantRefSV err, nothing at " <> show aValue <> ".")
         StringSV ->
           pure $ Right (context, S.push newFrame stackVal, True)
         HeapRefSV ->
@@ -374,6 +438,8 @@ forceToString context frame opWithArgs =
                       StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, True)
                       _ -> pure . Left $ StackError ("[@forceToString] ConstantRefHE err, got unexpected constant: " <> show aCteValue <> ".")
                     Nothing -> pure . Left $ StackError ("[@forceToString] ConstantRefHE err, nothing at " <> show aStrID <> ".")
+                VoidHE ->
+                  pure $ Right (context, S.push newFrame (GlobalHeapRefSV, 0), True)
                 _ ->
                   pure . Left $ StackError ("[@forceToString] HeapRefSV err, got unexpected value: " <> show aHeapValue <> ".")
             Nothing ->

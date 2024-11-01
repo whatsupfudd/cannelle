@@ -170,6 +170,7 @@ data ModuledDefinition = ModuledDefinition {
 -- representation of a runtime module:
 data VMModule = VMModule {
     functions :: V.Vector FunctionDef
+    , fctMap :: Mp.Map MainText Int32
     , constants :: V.Vector ConstantValue
     , externModules :: Mp.Map Text ModuledDefinition
   }
@@ -178,7 +179,7 @@ data VMModule = VMModule {
 
 data FunctionDef = FunctionDef {
     moduleID :: Int32
-    , fname :: Text
+    , fname :: MainText
     , args :: Maybe (NonEmpty ArgumentDef)
     , returnType :: SecondOrderType
     , heapSize :: Int
@@ -212,8 +213,8 @@ data ConstantValue =
   | StringCte Bs.ByteString
   | LongCte Int64
   | DoubleCte Double
-  | ArrayCte [ ConstantValue ]
-  | TupleCte [ ConstantValue ]
+  | ArrayCte (V.Vector ConstantValue)
+  | TupleCte (V.Vector ConstantValue)
   | ClassCte MainText
   | NameAndType MainText MainText
   | TypeSignature MainText

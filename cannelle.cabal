@@ -39,6 +39,7 @@ library
       Cannelle.Hugo.CompilerC
       Cannelle.Hugo.Defines
       Cannelle.Hugo.Exec
+      Cannelle.Hugo.NativeLib.All
       Cannelle.Hugo.Parse
       Cannelle.Hugo.Parser
       Cannelle.Hugo.TemplateConv

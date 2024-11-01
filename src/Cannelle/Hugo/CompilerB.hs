@@ -43,6 +43,7 @@ partB :: FullCompContext -> Either CompError FullCompContext
 partB ctxtB =
   -- Fill in the constant pool:
   let
+    nbrInternalFcts = fromIntegral (length $ Mp.elems ctxtB.fctDefs)
     -- move string values.
     (!poolA, !txtRevMap) = foldl (\(ctePool, revMap) (cID, cVal) -> let
           nCteID = fromIntegral $ V.length ctePool
@@ -83,7 +84,7 @@ partB ctxtB =
         (updCtePool, updRevMap)
       ) (poolC, Mp.empty) $ Mp.toList ctxtB.moduleSlots
     (!poolE, !fctRevMap) = V.foldl (\(ctePool, revMap) (fctID, (moduleID, labelID, returnID, argIDs, argNameIDs)) -> let
-          nCteID = fromIntegral $ V.length ctePool
+          nCteID = nbrInternalFcts + fromIntegral (V.length ctePool)
           updCtePool = V.snoc ctePool (FunctionRefRaw moduleID 
                       (fromMaybe 0 $ Mp.lookup labelID txtRevMap)
                       (fromMaybe 0 $ Mp.lookup returnID txtRevMap)

@@ -378,13 +378,14 @@ genExprOps expr@(FExpression { ae = FunctionCallEC funcID exprs }) = do
     Just err -> pure . Left $ err
 
 
-genExprOps expr@(FExpression { ae = PipelineEC fctExpr argExprs }) = do
+genExprOps expr@(FExpression { ae = PipelineEC fctExpr closureApplics }) = do
   -- TODO: revise the validity of this approach:
   genExprOps fctExpr
-  rezA <- mapM genExprOps argExprs
+  rezA <- mapM genExprOps closureApplics
   case concatErrors rezA of
     Nothing -> pure $ Right ()
     Just err -> pure . Left $ err
+
 
 genExprOps expr@(FExpression { ae = ClosureEC funcID exprs }) = do
   -- TODO: implement.
@@ -396,3 +397,24 @@ genExprOps expr@(FExpression { ae = ClosureEC funcID exprs }) = do
         Nothing -> pure . Left $ CompError [(0, "ClosureEC: Function slot not found: " <> show funcID)]
         Just fctSlotID -> A.emitOp $ REDUCE fctSlotID (succ . fromIntegral . length $ exprs)
     Just err -> pure . Left $ err
+
+
+genExprOps expr@(FExpression { ae = ClosureMethodAccessEC fields exprs }) = do
+  -- TODO: implement.
+  rezA <- mapM genExprOps exprs
+  case concatErrors rezA of
+    Just err -> pure . Left $ err
+    Nothing -> do
+      ctx <- get
+      A.emitOp $ LOAD_HEAP 0
+      rezB <- mapM (\(kind, fieldID) ->
+        case Mp.lookup fieldID ctx.cteMaps.txtCteMap of
+          Nothing -> pure . Left $ CompError [(0, "MethodAccessEC: Text constant not found: " <> show fieldID)]
+          Just txtCteID -> do
+            A.emitOp $ PUSH_CONST txtCteID
+            A.emitOp GET_FIELD
+          ) fields
+      case concatErrors rezB of
+        Nothing -> do
+          A.emitOp $ CALL_METHOD (succ . fromIntegral . length $ exprs)
+        Just err -> pure . Left $ err

@@ -14,17 +14,19 @@ exec :: Fu.FileUnit -> IO ()
 exec fileUnit = do
   putStrLn "@[exec] starting.\n"
   let
-    vmModule = C.VMModule {
-        functions = V.map (\fctDef -> 
+    fctDefs = V.map (\fctDef ->
             C.FunctionDef {
               moduleID = 0
-              , fname = T.decodeUtf8 fctDef.name
+              , fname = fctDef.name
               , args = Nothing
               , returnType = C.FirstOrderSO C.IntTO
-              , heapSize = 1
+              , heapSize = 32
               , body = C.ByteCode fctDef.bytecode
             }
           ) fileUnit.definitions
+    vmModule = C.VMModule {
+        functions = fctDefs
+      , fctMap = Mp.fromList $ zipWith (\fct idx -> (fct.fname, idx)) (V.toList fctDefs) [0..(fromIntegral $ V.length fctDefs - 1)]
       , constants = fileUnit.constants
       , externModules = Mp.empty
     }
@@ -40,8 +42,8 @@ exec fileUnit = do
 fuCteToVmCte :: Fu.ConstantTpl -> C.ConstantValue
 fuCteToVmCte (Fu.StringP s) = C.StringCte s
 fuCteToVmCte (Fu.DoubleP d) = C.DoubleCte d
-fuCteToVmCte (Fu.ListP _ ctes) = C.ArrayCte $ V.toList $ V.map fuCteToVmCte ctes
-fuCteToVmCte (Fu.StructP _ ctes) = C.TupleCte $ V.toList $ V.map fuCteToVmCte ctes
+fuCteToVmCte (Fu.ListP _ ctes) = C.ArrayCte $ V.map fuCteToVmCte ctes
+fuCteToVmCte (Fu.StructP _ ctes) = C.TupleCte $ V.map fuCteToVmCte ctes
 
 fakeHugoContext :: C.HeapEntry
 fakeHugoContext = C.StructV0 $ Mp.fromList [
@@ -55,4 +57,6 @@ fakeHugoContext = C.StructV0 $ Mp.fromList [
 fakeSite :: C.HeapEntry
 fakeSite = C.StructV0 $ Mp.fromList [
     ("Language", C.StructV0 $ Mp.fromList [ ("Lang", C.StringHE "en") ])
+    , ("Title", C.StringHE "First Test Site")
+    , ("Params", C.StructV0 $ Mp.fromList [ ("themeOptions", C.ArrayHE . V.fromList $ map C.StringHE ["light", "dark"]) ])
   ]

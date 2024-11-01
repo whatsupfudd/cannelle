@@ -44,7 +44,7 @@ execModule vmModule params mbStartName =
                   , frameStack = bootFrame :| []
                   , outStream = BS.empty
                   , modules = V.singleton vmModule, constants = vmModule.constants
-                  , tmpGlobalHeap = V.empty
+                  , tmpGlobalHeap = V.singleton (StringHE "")
               }
       in do
       putStrLn "@[execModule] starting..."
@@ -80,7 +80,7 @@ fakeExecModule vmModule =
     mbFctID = V.findIndex (\f -> f.fname ==  entryPoint) vmModule.functions
   in
   case mbFctID of
-    Nothing -> pure . Left $ "@[execModule] function " <> unpack entryPoint <> " not found in module."
+    Nothing -> pure . Left $ "@[execModule] function " <> show entryPoint <> " not found in module."
     Just fctID -> do
       putStrLn "@[execModule] starting..."
       eiCtxt <- execCodeOnFunctionID ctxt (moduleID, fctID)

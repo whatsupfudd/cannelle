@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use =<<" #-}
+{-# LANGUAGE LambdaCase #-}
 module Cannelle.Hugo.CompilerA where
 
 import Control.Monad.State (State, get, put, modify, runState)
@@ -442,21 +443,32 @@ compileExprRaw (ExprFunctionCall funcName args) = do
       addExpr (FunctionCallEC functionID argExprs)
 
 
-compileExprRaw (ExprPipeline leftExpr rightExprs) = do
+compileExprRaw (ExprPipeline leftExpr closureAppls) = do
   eiExpr <- compileExprRaw leftExpr
   case eiExpr of
     Left err -> pure $ Left err
     Right nExpr -> do
-      rezB <- mapM (\(FunctionApplication funcName args) -> do
-          functionID <- C.getFunctionSlot 1 funcName
-          -- TODO: check for errors in rezA.
-          rezA <- mapM compileExprRaw args
-          case splitResults rezA of
-            (Just err, _) -> pure $ Left err
-            (Nothing, argExprs) ->
-              addExpr (ClosureEC functionID argExprs)
-        ) rightExprs
+      rezB <- mapM (\case
+          FunctionApplicFA funcName args -> do
+            functionID <- C.getFunctionSlot 1 funcName
+            -- TODO: check for errors in rezA.
+            rezA <- mapM compileExprRaw args
+            case splitResults rezA of
+              (Just err, _) -> pure $ Left err
+              (Nothing, argExprs) ->
+                addExpr (ClosureEC functionID argExprs)
+          ClosureMethodFA (ExprMethodAccess fields values) -> do
+            varIDs <- mapM (\(Variable varKind varName) ->
+                (,) varKind <$> A.addStringConstant varName
+              ) fields
+            args <- mapM compileExprRaw values
+            case splitResults args of
+              (Nothing, argExprs) ->
+                addExpr (ClosureMethodAccessEC varIDs argExprs)
+              (Just mergedError, _) ->
+                pure $ Left mergedError
+        ) closureAppls
       case splitResults rezB of
         (Just err, _) -> pure $ Left err
-        (Nothing, argExprs) ->
-          addExpr (PipelineEC nExpr argExprs)
+        (Nothing, applicExprs) ->
+          addExpr (PipelineEC nExpr applicExprs)

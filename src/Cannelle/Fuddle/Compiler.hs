@@ -18,7 +18,9 @@ import qualified Data.Text.Encoding as TE
 
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.VM.OpCodes (OpCode (..), toInstr, opParCount, PcPtrT (..))
-import Cannelle.VM.Context (VMModule (..), FunctionDef (..), ConstantValue (..), ModuledDefinition (..), FunctionCode (..), SecondOrderType (..), FirstOrderType (..))
+import Cannelle.VM.Context (MainText, VMModule (..), FunctionDef (..), ConstantValue (..)
+                , ModuledDefinition (..), FunctionCode (..), SecondOrderType (..)
+                , FirstOrderType (..))
 import Cannelle.Fuddle.AST
 
 
@@ -74,7 +76,7 @@ initContext preludeMods =
   , imports = []
   , constants = Mp.empty
   , constantMap = Mp.empty
-  , bindings = Mp.fromList [ (fctName, initFctDef fctName) ]
+  , bindings = Mp.fromList [ (TE.decodeUtf8 fctName, initFctDef fctName) ]
   , referredIdentifiers = Mp.empty
   , modules = preludeMods
   , hasFailed = Nothing
@@ -85,7 +87,7 @@ initContext preludeMods =
   , spitFunction = 0
 }
 
-initFctDef :: Text -> FunctionDef
+initFctDef :: MainText -> FunctionDef
 initFctDef name = FunctionDef {
   moduleID = 0
   , fname = name
@@ -154,6 +156,7 @@ compileAstTree nTree =
           in
           Right $ VMModule {
               functions = Vc.singleton tmpMain
+              , fctMap = Mp.fromList $ zipWith (\fct idx -> (fct.fname, idx)) [tmpMain] [0..]
               , constants = Vc.fromList $ map (\(k, v) -> rezContext.constants Mp.! k) keyVals
               , externModules = modules rezContext
             }

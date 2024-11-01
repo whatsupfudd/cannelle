@@ -65,8 +65,9 @@ data FExpressionCore =
   | ParentContextEC
   | MethodAccessEC [(VarKind, Int32)] [FExpression]
   | FunctionCallEC Int32 [FExpression]
-  | PipelineEC FExpression [FExpression]      -- Only for ClosureEC for now.
-  | ClosureEC Int32 [FExpression]
+  | PipelineEC FExpression [FExpression]      -- Only for Closures for now.
+  | ClosureEC Int32 [FExpression]    -- There's an extra argument on the stack.
+  | ClosureMethodAccessEC [(VarKind, Int32)] [FExpression]  -- There's an extra argument on the stack.
   deriving (Show, Eq)
 
 
@@ -205,11 +206,13 @@ data Expression =
     | ExprParentContext                         -- ^ The parent context (..)
     | ExprMethodAccess [Variable][Expression]         -- ^ Field access (e.g., .Title)
     | ExprFunctionCall BS.ByteString [Expression]      -- ^ Function call (e.g., printf)
-    | ExprPipeline Expression [FunctionApplication] -- ^ A pipeline of functions
+    | ExprPipeline Expression [ClosureApplication] -- ^ A pipeline of functions
     deriving (Show, Eq)
 
 -- | Application of a function in a pipeline
-data FunctionApplication = FunctionApplication BS.ByteString [Expression]
+data ClosureApplication = 
+  ClosureMethodFA Expression
+  | FunctionApplicFA BS.ByteString [Expression]
     deriving (Show, Eq)
 
 -- | Literal values in expressions

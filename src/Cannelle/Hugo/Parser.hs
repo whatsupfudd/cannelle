@@ -36,7 +36,7 @@ type Parser = M.Parsec Void BS.ByteString
 
 
 oDbg str p =
-  if False then MD.dbg str p else p
+  if True then MD.dbg str p else p
 
 
 -- *** The parser part: ***
@@ -271,10 +271,10 @@ restrictedTerm = oDbg "restrictedTerm" $ M.choice [
     , oDbg "restrictedTerm.literal" literalParser
   ]
 
-nonFunctionTerm :: Parser Expression
-nonFunctionTerm = oDbg "nonFunctionTerm" $ M.choice [
-      oDbg "nonFunctionTerm.parens" $ parens term
-    , oDbg "nonFunctionTerm.variableOrMethod" $ M.try variableOrMethodParser
+inFunctionArg :: Parser Expression
+inFunctionArg = oDbg "inFunctionArg" $ M.choice [
+      oDbg "inFunctionArg.parens" $ parens term
+    , oDbg "inFunctionArg.variableOrMethod" nonAssocVarOrMethodParser
     , oDbg "nonFunctionTerm.literal" literalParser
   ]
 
@@ -283,6 +283,16 @@ variableOrMethodParser :: Parser Expression
 variableOrMethodParser =
   oDbg "variableOrMethodParser" $ M.choice [
       M.try methodParser
+      , M.try currentContextParser
+      , M.try localVariableParser
+      , parentContextParser
+   ]
+
+
+nonAssocVarOrMethodParser :: Parser Expression
+nonAssocVarOrMethodParser =
+  oDbg "nonAssocVarOrMethodParser" $ M.choice [
+      M.try noArgMethodParser
       , M.try currentContextParser
       , M.try localVariableParser
       , parentContextParser
@@ -321,6 +331,15 @@ methodParser = oDbg "methodParser" $ do
   pure $ ExprMethodAccess (map (Variable kind) fields) args
 
 
+noArgMethodParser :: Parser Expression
+noArgMethodParser = oDbg "noArgMethodParser" $ do
+  isGlobal <- M.optional $ M.char (Bi.c2w '$')
+  fields <- M.some (symbol "." *> identifier)
+  let
+    kind = if isNothing isGlobal then MethodK else LocalMethodK
+  pure $ ExprMethodAccess (map (Variable kind) fields) []
+
+
 literalParser :: Parser Expression
 literalParser = oDbg "literalParser" $ do
   exprInfo <- literal
@@ -332,8 +351,8 @@ literal :: Parser Literal
 literal = oDbg "literal" $ M.choice
     [ LitBool True <$ symbol "true"
     , LitBool False <$ symbol "false"
-    , LitNumber True <$> M.try float
-    , LitNumber False . fromInteger <$> integer
+    , LitNumber True <$> M.try (oDbg "literal.float" float)
+    , LitNumber False . fromInteger <$> oDbg "literal.integer" integer
     , LitString <$> quotedString
     ]
 
@@ -341,9 +360,7 @@ literal = oDbg "literal" $ M.choice
 functionCallParser :: Parser Expression
 functionCallParser = oDbg "functionCallParser" $ do
     funcName <- oDbg "functionCallParser.funcName" identifier
-    mbArgs <- oDbg "functionCallParser.args" $ M.optional $ nonFunctionTerm `sepBy` M.space1
-    let
-      args = fromMaybe [] mbArgs
+    args <- oDbg "functionCallParser.args" $ M.many inFunctionArg
     return $ ExprFunctionCall funcName args
 
 
@@ -352,15 +369,22 @@ pipelineParser = oDbg "pipelineParser" $ do
     expr <- oDbg "pipelineParser.expr" restrictedTerm
     skipper
     apps <- oDbg "pipelineParser.apps" $
-        M.some (symbol "|" *> oDbg "pipelineParser.apps.functionApplicationParser" functionApplicationParser) -- space *> M.char (Bi.c2w '|') *> M.space
+        M.some (symbol "|" *> oDbg "pipelineParser.apps.functionApplicationParser" closureApplicationParser) -- space *> M.char (Bi.c2w '|') *> M.space
     pure $ ExprPipeline expr apps
 
 
-functionApplicationParser :: Parser FunctionApplication
+closureApplicationParser :: Parser ClosureApplication
+closureApplicationParser = oDbg "closureApplicationParser" $ M.choice [
+    ClosureMethodFA <$> methodParser
+    , functionApplicationParser
+  ]
+
+
+functionApplicationParser :: Parser ClosureApplication
 functionApplicationParser = oDbg "functionApplicationParser" $ do
     funcName <- oDbg "functionApplicationParser.funcName" identifier
     args <- oDbg "functionApplicationParser.args" $ M.many restrictedTerm
-    return $ FunctionApplication funcName args
+    return $ FunctionApplicFA funcName args
 
 
 parens :: Parser a -> Parser a
