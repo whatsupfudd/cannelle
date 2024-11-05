@@ -27,6 +27,7 @@ data TechMode =
   | Hugo
   | PHP
   | Fuddle
+  | React
 
 
 parseOptions :: [String] -> IO Options
@@ -116,4 +117,9 @@ techMode =
        long "fuddle"
     <> short 'f'
     <> help "Use the Fuddle template engine"
+  )
+  <|> flag' React (
+       long "react"
+    <> short 'r'
+    <> help "Use the React template engine"
   )

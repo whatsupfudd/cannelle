@@ -1,4 +1,4 @@
-module Cannelle.PHP.Types where
+module Cannelle.TreeSitter.Types where
 
 import Data.Data (Data (..))
 import Data.List (intercalate)
@@ -56,4 +56,13 @@ instance Data TSPoint where
   toConstr _ = error "toConstr: TSPoint"
   gunfold _ _ = error "gunfold: TSPoint"
   dataTypeOf _ = error "dataTypeOf: TSPoint"
+
+
+type SegmentPos = (TSPoint, TSPoint)
+
+showPoint :: TSPoint -> String
+showPoint pt = "(" <> show pt.pointRow <> ", " <> show pt.pointColumn <> ")"
+
+showSegmentRange :: SegmentPos -> String
+showSegmentRange (start, end) = showRange start end
 

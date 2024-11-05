@@ -8,6 +8,8 @@ import qualified Data.ByteString as Bs
 import Data.Int (Int32)
 import qualified Data.Map as Mp
 import Data.Maybe (fromMaybe)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
 import Cannelle.VM.Context (MainText, ConstantValue (..), cteValKind)
@@ -43,6 +45,26 @@ showFunctionDef function =
   <> "args: " <> show function.args <> "\n"
   <> "returnType: " <> show function.returnType <> "\n"
   <> "ops:\n" <> showOpcodesWithLabels revLabels function.ops <> "\n"
+
+
+showImportTpl :: FileUnit -> ImportTpl -> String
+showImportTpl fileUnit iFct =
+  let
+    rez =
+      case fileUnit.constants V.!? fromIntegral iFct.moduleID of
+        Just moduleDef -> case moduleDef of
+          ModuleRefRaw labelID -> case fileUnit.constants V.!? fromIntegral labelID of
+            Just (StringCte name) -> Right $ "mod: " <> name
+            _ -> Left $ "moduleID: " <> show iFct.moduleID <> " not found."
+          _ -> Left $ "moduleID: " <> show iFct.moduleID <> " is not a ModuleRefRaw."
+        _ -> Left $ "moduleID: " <> show iFct.moduleID <> " not found."
+      >>= \rStrA -> case fileUnit.constants V.!? fromIntegral iFct.labelID of
+        Just (StringCte name) -> Right $ rStrA <> " , fct: " <> name
+        _ -> Left $ "labelID: " <> show iFct.labelID <> " not found."
+  in
+  case rez of
+    Left err -> "@[showImportTpl] " <> err
+    Right str -> T.unpack . T.decodeUtf8 $ str
 
 
 showConstantValue :: ConstantValue -> String
@@ -310,7 +332,8 @@ putArgDef constants arg = do
 
 putImportsV1 :: V.Vector ImportTpl -> Bp.Put
 putImportsV1 imports = do
-  Bp.putInt32be 0
+  Bp.putInt32be (fromIntegral $ V.length imports)
+  mapM_ putAnImport imports
 
 
 putRoutingV1 :: V.Vector RouteTpl -> Bp.Put
@@ -323,15 +346,45 @@ parseTypeDef (StringCte str) = Just IntegerT
 parseTypeDef _ = Nothing
 
 
-getImportsV1 :: Bg.Get (V.Vector ImportTpl)
-getImportsV1 = do
-  nbrImports <- Bg.getInt32be
-  -- TODO: read the imports.
-  pure V.empty
-
-
 getRoutingV1 :: Bg.Get (V.Vector RouteTpl)
 getRoutingV1 = do
   nbrRoutes <- Bg.getInt32be
   -- TODO: read the routes.
   pure V.empty
+
+
+getImportsV1 :: Bg.Get (V.Vector ImportTpl)
+getImportsV1 = do
+  nbrImports <- Bg.getInt32be
+  -- TODO: read the imports.
+  V.fromList <$> mapM (const getAnImport) [1..nbrImports]
+
+
+getAnImport :: Bg.Get ImportTpl
+getAnImport = do
+  mandatoryFlag <- Bg.getWord8
+  moduleID <- Bg.getInt32be
+  labelID <- Bg.getInt32be
+  returnTypeID <- Bg.getInt32be
+  argTypeID <- Bg.getInt32be
+  nbrArgs <- Bg.getInt32be
+  argNameIDs <- mapM (const Bg.getInt32be) [1..nbrArgs]
+  pure ImportTpl {
+    mandatoryFlag = mandatoryFlag == 1
+    , moduleID = moduleID
+    , labelID = labelID
+    , returnTypeID = returnTypeID
+    , argTypeID = argTypeID
+    , argNameIDs = argNameIDs
+  }
+
+
+putAnImport :: ImportTpl -> Bp.Put
+putAnImport impFct = do
+  Bp.putWord8 (if impFct.mandatoryFlag then 1 else 0)
+  Bp.putInt32be impFct.moduleID
+  Bp.putInt32be impFct.labelID
+  Bp.putInt32be impFct.returnTypeID
+  Bp.putInt32be impFct.argTypeID
+  Bp.putInt32be (fromIntegral $ length impFct.argNameIDs)
+  mapM_ Bp.putInt32be impFct.argNameIDs

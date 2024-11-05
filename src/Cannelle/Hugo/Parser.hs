@@ -36,7 +36,7 @@ type Parser = M.Parsec Void BS.ByteString
 
 
 oDbg str p =
-  if True then MD.dbg str p else p
+  if False then MD.dbg str p else p
 
 
 -- *** The parser part: ***

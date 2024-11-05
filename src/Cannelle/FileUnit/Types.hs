@@ -43,11 +43,24 @@ data ActionTpl =
   | RedirectTl FilePath
   deriving Show
 
-
+{- Old definition:
 data ImportTpl = ImportTpl {
   path :: FilePath
   , alias :: Maybe MainText
   , reference :: [ MainText ]
+  }
+  deriving Show
+-}
+
+
+-- Fct info: moduleID, labelID, returnTypeID, argTypeID, argNameIDs
+data ImportTpl = ImportTpl {
+  mandatoryFlag :: Bool
+  , moduleID :: Int32
+  , labelID :: Int32
+  , returnTypeID :: Int32
+  , argTypeID :: Int32
+  , argNameIDs :: [Int32]
   }
   deriving Show
 

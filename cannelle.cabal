@@ -69,6 +69,21 @@ library
       Cannelle.PHP.Scanner
       Cannelle.PHP.State
       Cannelle.PHP.Types
+      Cannelle.React.AST
+      Cannelle.React.Parse
+      Cannelle.React.Parser
+      Cannelle.React.Parser.Statements
+      Cannelle.React.Parser.Support
+      Cannelle.React.Parser.Types
+      Cannelle.React.Types
+      Cannelle.TreeSitter.Class
+      Cannelle.TreeSitter.Debug
+      Cannelle.TreeSitter.Error
+      Cannelle.TreeSitter.Interface
+      Cannelle.TreeSitter.Print
+      Cannelle.TreeSitter.Scanner
+      Cannelle.TreeSitter.State
+      Cannelle.TreeSitter.Types
       Cannelle.VM.Context
       Cannelle.VM.Engine
       Cannelle.VM.Heap
@@ -114,6 +129,7 @@ library
     , tree-sitter
     , tree-sitter-haskell
     , tree-sitter-php
+    , tree-sitter-tsx
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
     , vector >=0.12.0.2 && <0.14
@@ -160,6 +176,7 @@ executable cannelle
     , tree-sitter
     , tree-sitter-haskell
     , tree-sitter-php
+    , tree-sitter-tsx
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
     , vector >=0.12.0.2 && <0.14
@@ -205,6 +222,7 @@ test-suite cannelle-test
     , tree-sitter
     , tree-sitter-haskell
     , tree-sitter-php
+    , tree-sitter-tsx
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
     , vector >=0.12.0.2 && <0.14

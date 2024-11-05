@@ -13,6 +13,7 @@ extra-deps:
   - ../haskell-tree-sitter/tree-sitter
   - ../haskell-tree-sitter/tree-sitter-haskell
   - ../haskell-tree-sitter/tree-sitter-php
+  - ../haskell-tree-sitter/tree-sitter-tsx
 
 
 # Override default flag values for local packages and extra-deps

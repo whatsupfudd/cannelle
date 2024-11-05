@@ -168,14 +168,14 @@ doVM context =
                   !nCtxt = retCtxt { frameStack = newFrame Ne.<| (updRetFrame Ne.:| restStack) }
                 in
                 case newFrame.function.body of
-                  NativeCode ref -> pure . Left $ "@[doVM] trying to run a native function: " <> ref <> "."
+                  NativeCode ref -> pure . Left $ "@[doByteCodeVM] trying to run a native function: " <> ref <> "."
                   ByteCode opcodes ->
                     doByteCodeVM nCtxt newFrame opcodes
               PopFrameVO ->
                 let
                   !topStack Ne.:| !restStack = retCtxt.frameStack
                 in do
-                -- putStrLn $ "@[doVM] popping frame, stack: " <> show restStack
+                -- putStrLn $ "@[doByteCodeVM] popping frame, stack: " <> show restStack
                 case restStack of
                   [] -> pure . Right $ retCtxt { status = Halted }
                   newTop : restB ->
@@ -183,13 +183,13 @@ doVM context =
                       !nCtxt = retCtxt { frameStack = newTop Ne.:| restB }
                     in
                     case newTop.function.body of
-                      NativeCode ref -> pure . Left $ "@[doVM] trying to return to a native function: " <> ref <> "."
+                      NativeCode ref -> pure . Left $ "@[doByteCodeVM] trying to return to a native function: " <> ref <> "."
                       ByteCode opcodes ->
                         doByteCodeVM nCtxt newTop opcodes
               HaltVO ->
                 pure $ Right retCtxt { status = Halted }
           Left err -> do
-            putStrLn $ "@[doVM] ctx outstream: " <> show inCtxt.outStream
+            putStrLn $ "@[doByteCodeVM] ctx outstream: " <> show inCtxt.outStream
             pure . Left $ analyzeVmError err heap stack
 
 

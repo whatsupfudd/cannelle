@@ -45,11 +45,14 @@ import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourc
 
 import qualified Cannelle.Hugo.Parse as Hg
 import qualified Cannelle.Hugo.Exec as Hg
-
 import qualified Cannelle.Fuddle.Parser as Fd
 
 import qualified Cannelle.PHP.Parse as Ph
 import Cannelle.PHP.Print (printPhpContext)
+
+import qualified Cannelle.React.Parse as Rc
+
+import qualified Cannelle.FileUnit.InOut as Fio
 
 import Options (parseOptions, Options (..), TemplateSource (..), DataSource (..), TechMode (..), OutputSpec (..))
 
@@ -65,6 +68,7 @@ main = do
           Hugo -> runHugo tpl dat mbOut
           PHP -> runPHP tpl dat
           Fuddle -> runFuddle tpl dat
+          React -> runReact tpl dat
 
 
 loadData :: DataSource -> IO (Either YAML.ParseException (HashMap Text JSON.Value))
@@ -130,7 +134,9 @@ runHugo tplSrc dataSrc mbOut = do
       rez <- Hg.parse fn (mbOut >>= \(OutputSpec outPath) -> Just outPath)
       case rez of
         Left err -> putStrLn err
-        Right fileUnit -> Hg.exec fileUnit
+        Right fileUnit -> do
+          putStrLn $ "@[runHugo] fileUnit:\n" <> Fio.showFileUnit fileUnit
+          Hg.exec fileUnit
     TemplateFromStdin -> do
       text <- encodeUtf8 . pack <$> getContents
       let
@@ -163,6 +169,20 @@ runFuddle tplSrc dataSrc = do
       pure . Left $ "@[runFuddle] TemplateFromStdin not supported yet."
   pure ()
 
+
+runReact :: TemplateSource -> DataSource -> IO ()
+runReact tplSrc dataSrc = do
+  rezA <- case tplSrc of
+    TemplateFromFile fn -> do
+      rezB <- Rc.tsParseReact True fn
+      case rezB of
+        Left errMsg ->
+          putStrLn $ "@[runReact] tsParseReact err: " <> show errMsg
+        Right ctx -> do
+          putStrLn $ "@[runReact] ctx: " <> show ctx
+    TemplateFromStdin ->
+      putStrLn "@[runReact] TemplateFromStdin not supported yet."
+  pure ()
 
 printParserError :: Maybe String -> ParserError -> IO ()
 printParserError srcMay = putStrLn . formatParserError srcMay
