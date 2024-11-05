@@ -3,8 +3,8 @@ module Cannelle.PHP.Parser.Types where
 import Data.Data (Data (..))
 import Control.Monad.Identity (Identity(..))
 
-import qualified Cannelle.PHP.Error as E
-import qualified Cannelle.PHP.Scanner as B
+import qualified Cannelle.TreeSitter.Error as E
+import qualified Cannelle.TreeSitter.Scanner as B
 
 newtype TError = TError String
   deriving (Show, Eq, Ord)

@@ -1,7 +1,7 @@
 module Cannelle.PHP.Parser.Support where
 
 
-import Cannelle.PHP.Debug (ScannerDebug (..))
+import Cannelle.TreeSitter.Debug (ScannerDebug (..))
 
 
 debugOpt :: (ScannerDebug errT m, Show a) => String -> m a -> m a

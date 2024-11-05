@@ -9,9 +9,9 @@ import Data.Maybe (maybeToList)
 import TreeSitter.Node ( TSPoint(..) )
 
 import Cannelle.PHP.Parser.Support (debugOpt)
-import qualified Cannelle.PHP.Scanner as B
-import qualified Cannelle.PHP.Class as B
-import qualified Cannelle.PHP.State as B
+import qualified Cannelle.TreeSitter.Scanner as B
+import qualified Cannelle.TreeSitter.Class as B
+import qualified Cannelle.TreeSitter.State as B
 import Cannelle.PHP.AST
 import Cannelle.PHP.Parser.Types
 import Cannelle.PHP.Parser.Expressions

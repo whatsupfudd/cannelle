@@ -9,13 +9,13 @@ import qualified Data.Vector as V
 
 import TreeSitter.Node ( TSPoint(..) )
 
-import qualified Cannelle.PHP.Scanner as B
-import qualified Cannelle.PHP.Class as B
-import qualified Cannelle.PHP.State as B
-import qualified Cannelle.PHP.Error as E
+import qualified Cannelle.TreeSitter.Scanner as B
+import qualified Cannelle.TreeSitter.Class as B
+import qualified Cannelle.TreeSitter.State as B
+import qualified Cannelle.TreeSitter.Error as E
 
-import Cannelle.PHP.Debug (debug)
-import Cannelle.PHP.Types (NodeEntry)
+import Cannelle.TreeSitter.Debug (debug)
+import Cannelle.TreeSitter.Types (NodeEntry)
 import Cannelle.PHP.AST (PhpAction, PhpContext (..))
 import Cannelle.PHP.Parser.Types (ScannerB, TError (..))
 import Cannelle.PHP.Parser.Statements (statementS)

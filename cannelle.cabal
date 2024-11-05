@@ -55,10 +55,6 @@ library
       Cannelle.Jinja.Run.Type
       Cannelle.Jinja.Run.VM
       Cannelle.PHP.AST
-      Cannelle.PHP.Class
-      Cannelle.PHP.Debug
-      Cannelle.PHP.Error
-      Cannelle.PHP.Interface
       Cannelle.PHP.NeParser
       Cannelle.PHP.Parse
       Cannelle.PHP.Parser.Expressions
@@ -66,9 +62,6 @@ library
       Cannelle.PHP.Parser.Support
       Cannelle.PHP.Parser.Types
       Cannelle.PHP.Print
-      Cannelle.PHP.Scanner
-      Cannelle.PHP.State
-      Cannelle.PHP.Types
       Cannelle.React.AST
       Cannelle.React.Parse
       Cannelle.React.Parser

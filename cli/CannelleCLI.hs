@@ -179,7 +179,7 @@ runReact tplSrc dataSrc = do
         Left errMsg ->
           putStrLn $ "@[runReact] tsParseReact err: " <> show errMsg
         Right ctx -> do
-          putStrLn $ "@[runReact] ctx: " <> show ctx
+          putStrLn $ "@[runReact] ctx: " <> show ctx <> "\n"
     TemplateFromStdin ->
       putStrLn "@[runReact] TemplateFromStdin not supported yet."
   pure ()

@@ -4,9 +4,9 @@ import qualified Data.Vector as V
 
 import TreeSitter.Node (TSPoint(..))
 
-import Cannelle.PHP.Types (showRange)
+import Cannelle.TreeSitter.Types (showRange, SegmentPos, showSegmentRange)
 
-
+{-
 type SegmentPos = (TSPoint, TSPoint)
 
 showPoint :: TSPoint -> String
@@ -14,6 +14,7 @@ showPoint pt = "(" <> show pt.pointRow <> ", " <> show pt.pointColumn <> ")"
 
 showSegmentRange :: SegmentPos -> String
 showSegmentRange (start, end) = showRange start end
+-}
 
 
 data PhpContext = PhpContext {

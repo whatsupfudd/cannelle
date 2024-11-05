@@ -22,8 +22,9 @@ import TreeSitter.Node ( nodeStartPoint ,ts_node_copy_child_nodes, Node(..)
 
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.PHP.NeParser (testScannerB)
-import Cannelle.PHP.Print (printPhpContext, printNode)
-import Cannelle.PHP.Types
+import Cannelle.TreeSitter.Print (printNode)
+import Cannelle.TreeSitter.Types
+import Cannelle.PHP.Print (printPhpContext)
 import Cannelle.PHP.Parser.Types (TError (..))
 import Cannelle.PHP.AST (PhpContext (..))
 

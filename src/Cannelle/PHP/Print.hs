@@ -8,11 +8,11 @@ import Data.Maybe (maybe)
 import qualified Data.Vector as V
 import TreeSitter.Node ( Node(..), TSPoint(TSPoint, pointRow, pointColumn) )
 
-import Cannelle.PHP.Types
+import Cannelle.TreeSitter.Types
 import Cannelle.PHP.AST
 import Cannelle.PHP.Parser.Types (TError)
 
-
+{-
 printNode :: Int -> NodeEntry -> IO ()
 printNode level node = do
   let
@@ -65,7 +65,7 @@ showNodeCap level capCount nodes =
               (restPart2, newCap2) = if newCap > 3 then ("...", newCap) else showNodeCap level (succ newCap) rest
             in
             (mainPart <> " > " <> nextPart <> " | " <> restPart2, newCap2)
-
+-}
 
 printPhpContext :: Bs.ByteString -> PhpContext -> IO ()
 printPhpContext content ctxt =
