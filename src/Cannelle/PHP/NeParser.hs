@@ -16,8 +16,9 @@ import qualified Cannelle.TreeSitter.Error as E
 
 import Cannelle.TreeSitter.Debug (debug)
 import Cannelle.TreeSitter.Types (NodeEntry)
+import Cannelle.TreeSitter.Error (TError (..))
 import Cannelle.PHP.AST (PhpAction, PhpContext (..))
-import Cannelle.PHP.Parser.Types (ScannerB, TError (..))
+import Cannelle.PHP.Parser.Types (ScannerB)
 import Cannelle.PHP.Parser.Statements (statementS)
 import Cannelle.PHP.Parser.Support (debugOpt)
 -- **** Combinatorial Monadic approach to parsing, derived from Megaparsec. **** --

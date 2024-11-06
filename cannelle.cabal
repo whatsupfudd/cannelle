@@ -68,6 +68,7 @@ library
       Cannelle.React.Parser.Statements
       Cannelle.React.Parser.Support
       Cannelle.React.Parser.Types
+      Cannelle.React.Print
       Cannelle.React.Types
       Cannelle.TreeSitter.Class
       Cannelle.TreeSitter.Debug

@@ -30,7 +30,7 @@ import Data.Monoid
 import Data.Semigroup
 import Control.DeepSeq (NFData (rnf))
 
-import Data.Data (Data)
+import Data.Data (Data (..))
 import Data.Typeable (Typeable)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -223,3 +223,17 @@ orList :: NonEmpty String -> String
 orList (x :| []) = x
 orList (x :| [y]) = x <> " or " <> y
 orList xs = intercalate ", " (NE.init xs) <> ", or " <> NE.last xs
+
+
+
+newtype TError = TError String
+  deriving (Show, Eq, Ord)
+
+instance Data TError where
+  toConstr _ = error "toConstr"
+  gunfold _ _ = error "gunfold"
+  dataTypeOf _ = error "dataTypeOf"
+
+
+instance (Show te, Ord te, Data te) => ShowErrorComponent (ScanError te) where
+  showErrorComponent = show

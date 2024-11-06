@@ -9,8 +9,9 @@ import qualified Data.Vector as V
 import TreeSitter.Node ( Node(..), TSPoint(TSPoint, pointRow, pointColumn) )
 
 import Cannelle.TreeSitter.Types
+import Cannelle.TreeSitter.Print (fetchContent)
 import Cannelle.PHP.AST
-import Cannelle.PHP.Parser.Types (TError)
+import Cannelle.TreeSitter.Error (TError)
 
 {-
 printNode :: Int -> NodeEntry -> IO ()
@@ -77,37 +78,6 @@ printPhpContext content ctxt =
   putStrLn $ "@[printPhpContext] contentDemands: "
   V.mapM_ putStrLn demandLines
   where
-  fetchContent :: V.Vector Bs.ByteString -> (SegmentPos, Int) -> String
-  fetchContent cLines ((start, end), lineNum) =
-    let
-      startLine = fromIntegral start.pointRow
-      startCol = fromIntegral start.pointColumn
-      endLine = fromIntegral end.pointRow
-      endCol = fromIntegral end.pointColumn
-      mainText
-        | startLine == endLine = Bs.take (endCol - startCol) $ Bs.drop startCol (cLines V.! startLine)
-        | endCol == 0 = let
-                          prefix = Bs.drop startCol (cLines V.! startLine)
-                          middle = if endLine == succ startLine then
-                              ""
-                            else
-                              V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine - 1) cLines)
-                        in
-                        prefix <> middle
-        | succ startLine == endLine = let
-                        prefix = Bs.drop startCol (cLines V.! startLine)
-                        postfix = Bs.take endCol (cLines V.! endLine)
-                      in
-                      prefix <> "\n" <> postfix
-        | otherwise = let
-                        prefix = Bs.drop startCol (cLines V.! startLine)
-                        middle = V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine - 1) cLines)
-                        postfix = Bs.take endCol (cLines V.! endLine)
-                      in
-                      prefix <> middle <> "\n" <> postfix
-    in
-    show lineNum <> " (" <> show startLine <> "," <> show startCol <> ")-(" <> show endLine <> "," <> show endCol <> "): " <> (T.unpack . T.decodeUtf8) mainText <> "\n"
-
   showLogic :: Int -> [PhpAction] -> String
   showLogic level actions =
     let

@@ -51,6 +51,7 @@ import qualified Cannelle.PHP.Parse as Ph
 import Cannelle.PHP.Print (printPhpContext)
 
 import qualified Cannelle.React.Parse as Rc
+import Cannelle.React.Print (printReactContext)
 
 import qualified Cannelle.FileUnit.InOut as Fio
 
@@ -179,7 +180,11 @@ runReact tplSrc dataSrc = do
         Left errMsg ->
           putStrLn $ "@[runReact] tsParseReact err: " <> show errMsg
         Right ctx -> do
-          putStrLn $ "@[runReact] ctx: " <> show ctx <> "\n"
+          -- putStrLn $ "@[runReact] ctx: " <> show ctx <> "\n"
+          content <- BS.readFile fn
+          putStrLn "\n"
+          printReactContext content ctx
+          putStrLn "\n"
     TemplateFromStdin ->
       putStrLn "@[runReact] TemplateFromStdin not supported yet."
   pure ()

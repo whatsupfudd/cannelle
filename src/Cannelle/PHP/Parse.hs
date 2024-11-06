@@ -24,8 +24,8 @@ import Cannelle.Common.Error (CompError (..))
 import Cannelle.PHP.NeParser (testScannerB)
 import Cannelle.TreeSitter.Print (printNode)
 import Cannelle.TreeSitter.Types
+import Cannelle.TreeSitter.Error (TError (..))
 import Cannelle.PHP.Print (printPhpContext)
-import Cannelle.PHP.Parser.Types (TError (..))
 import Cannelle.PHP.AST (PhpContext (..))
 
 

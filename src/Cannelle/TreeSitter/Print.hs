@@ -1,5 +1,10 @@
 module Cannelle.TreeSitter.Print where
 
+import qualified Data.ByteString as Bs
+import Data.Text (unpack)
+import Data.Text.Encoding (decodeUtf8)
+import qualified Data.Vector as V
+
 import TreeSitter.Node ( Node(..), TSPoint(TSPoint, pointRow, pointColumn) )
 
 import Cannelle.TreeSitter.Types
@@ -58,3 +63,34 @@ showNodeCap level capCount nodes =
             in
             (mainPart <> " > " <> nextPart <> " | " <> restPart2, newCap2)
 
+
+fetchContent :: V.Vector Bs.ByteString -> (SegmentPos, Int) -> String
+fetchContent cLines ((start, end), lineNum) =
+  let
+    startLine = fromIntegral start.pointRow
+    startCol = fromIntegral start.pointColumn
+    endLine = fromIntegral end.pointRow
+    endCol = fromIntegral end.pointColumn
+    mainText
+      | startLine == endLine = Bs.take (endCol - startCol) $ Bs.drop startCol (cLines V.! startLine)
+      | endCol == 0 = let
+                        prefix = Bs.drop startCol (cLines V.! startLine)
+                        middle = if endLine == succ startLine then
+                            ""
+                          else
+                            V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine - 1) cLines)
+                      in
+                      prefix <> middle
+      | succ startLine == endLine = let
+                      prefix = Bs.drop startCol (cLines V.! startLine)
+                      postfix = Bs.take endCol (cLines V.! endLine)
+                    in
+                    prefix <> "\n" <> postfix
+      | otherwise = let
+                      prefix = Bs.drop startCol (cLines V.! startLine)
+                      middle = V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine - 1) cLines)
+                      postfix = Bs.take endCol (cLines V.! endLine)
+                    in
+                    prefix <> middle <> "\n" <> postfix
+  in
+  show lineNum <> " (" <> show startLine <> "," <> show startCol <> ")-(" <> show endLine <> "," <> show endCol <> "): " <> (unpack . decodeUtf8) mainText <> "\n"

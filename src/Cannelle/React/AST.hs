@@ -4,9 +4,12 @@ import qualified Data.Vector as V
 
 import TreeSitter.Node (TSPoint(..))
 
+import Cannelle.VM.Context (MainText)
+import Cannelle.TreeSitter.Types (SegmentPos)
 
-newtype ReactContext = ReactContext {
-    content :: V.Vector TsxTopLevel
+data ReactContext = ReactContext {
+    tlElements :: V.Vector TsxTopLevel
+    , contentDemands :: V.Vector SegmentPos
   }
   deriving Show
 
@@ -124,14 +127,35 @@ multiplicative-binary-expression ::= unary-expression '*' multiplicative-binary-
 
 data TsxTopLevel =
   StatementTL TsxStatement
-  | FunctionDeclTL
+  | FunctionDeclTL TsxExpression    -- Always a FunctionDefEX.
   | ClassDeclTL
-  | TypeDeclTL
+  | TypeDeclTL Int
   | EnumDeclTL
   | ModuleDeclTL
   | AmbientDeclTL
   deriving Show
 
+data Parameter =
+  ObjectPatternP Identifier
+  | IdentifierP Identifier
+  deriving Show
+
+data TypedParameter =
+  TypedParameterTP Bool Parameter TypeAnnotation
+  | UntypedTP Parameter
+  deriving Show
+
+data TypeAnnotation =
+  ObjectTypeTA
+  | ArrayTypeTA
+  | PredefinedTypeTA DefinedType
+  deriving Show
+
+data DefinedType =
+  StringDT
+  | NumberDT
+  | BooleanDT
+  deriving Show
 
 data TsxStatement =
   CompoundST [TsxStatement]
@@ -146,14 +170,27 @@ data TsxStatement =
   | ControlFlowST
   | TryCatchFinallyST
   | LabelST
-  | ExportST
-  | ImportST
+  -- Export defaultFlag Item-exported
+  | ExportST Bool ExportItem
+  | ImportST ImportKind StringValue
+  | ReturnST TsxExpression
+  -- Where is this in the grammar?
+  | LexicalDeclST
   deriving Show
 
+data ExportItem =
+  IdentifierEI Identifier
+  | FunctionEI TsxTopLevel  -- Always a FunctionDeclTL.
+  deriving Show
+
+data ImportKind =
+  SingleIK Int
+  | NamedIK [ Int ]
+  deriving Show
 
 data TsxExpression =
   TernaryEX
-  | BinaryEX
+  | BinaryEX TsxExpression BinaryOperator TsxExpression
   | UnaryEX
   | PrimaryEX
   | AssignmentEX
@@ -161,8 +198,58 @@ data TsxExpression =
   | PropAssignEX
   | GetAccessorEX
   | SetAccessorEX
-  | CallEX
-  | ArrowFunctionEX
+  | CallEX MemberSelector [TsxExpression]
+  | FunctionDefEX (Maybe Int) [TypedParameter] [TsxStatement]
+  | ArrowFunctionEX [TypedParameter] TsxExpression
+  | ParenEX TsxExpression
+  -- Where are those in the grammar definition?
+  | NonNullEX TsxExpression
+  | LiteralEX LiteralValue
+  | VarAccessEX Identifier
+  | MemberAccessEX MemberSelector
+  | JsxElementEX JsxElement
+  deriving Show
+
+
+data MemberSelector =
+  DottedMS MemberPrefix Bool Identifier
+  deriving Show
+
+
+data MemberPrefix =
+  SimpleMemberSel Identifier
+  | ComposedMemberSel MemberSelector
+  | CallMemberSel TsxExpression
+  | NonNullSel TsxExpression
+  deriving Show
+
+
+data JsxElement =
+  SelfClosingJex Identifier [(Int, JsxAttribute)]
+  | JsxElement JsxOpening [JsxElement] (Maybe JsxClosing)
+  | ExpressionJex JsxTsxExpr
+  | TextJex Int
+  deriving Show
+
+
+data JsxOpening =
+  JsxOpening Identifier [(Int, JsxAttribute)]
+  | JsxEmptyOpening
+  deriving Show
+
+
+data JsxClosing =
+  JsxClosing Identifier
+  | JsxEmptyClosing
+  deriving Show
+
+data JsxAttribute =
+  JsxExpressionAT JsxTsxExpr
+  | StringAT StringValue
+  deriving Show
+
+
+newtype JsxTsxExpr = JsxTsxExpr TsxExpression
   deriving Show
 
 
@@ -229,3 +316,17 @@ data BinaryOperator =
   | ExpBO
   deriving Show
 
+
+newtype LiteralValue =
+  StringLT StringValue
+  deriving Show
+
+newtype StringValue =
+  QuotedString Int
+  deriving Show
+
+data Identifier =
+  SimpleId Int
+  | ShortHandId Int
+  | PropertyId Int
+  deriving Show

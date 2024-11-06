@@ -14,18 +14,21 @@ import Cannelle.React.Parser.Types
 import Cannelle.React.AST (ReactContext(..), TsxTopLevel(..))
 
 
-tsxScanner :: [NodeEntry] -> Either TError ReactContext
+tsxScanner :: [NodeEntry] -> Either E.TError ReactContext
 tsxScanner nodes =
   let
-    mainScanner = debugOpt "topLevel" reactS <* Sc.pEof
+    mainScanner = reactS <* Sc.pEof
     result = Sc.doScan mainScanner nodes
   in do
   -- putStrLn $ "@[testScannerB] endState: " <> show endState
   case result of
-    Left err -> Left $ TError $ E.showScanErrorBundle err
-    Right (tsxTopLevels, positions) -> Right $ ReactContext $ V.fromList tsxTopLevels
+    Left err -> Left $ E.TError $ E.showScanErrorBundle err
+    Right (tsxTopLevels, positions) -> Right $ ReactContext {
+      tlElements = V.fromList tsxTopLevels
+      , contentDemands = positions
+      }
 
 
 reactS :: ScannerP [TsxTopLevel]
 reactS = do
-  many $ debugOpt "reactS" topLevelS
+  many topLevelS
