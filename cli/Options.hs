@@ -19,7 +19,7 @@ data DataSource =
 newtype OutputSpec = OutputSpec FilePath
 
 
-data Options = RunOptions TemplateSource DataSource TechMode (Maybe OutputSpec)
+data Options = RunOptions Int TemplateSource DataSource TechMode (Maybe OutputSpec)
 
 
 data TechMode =
@@ -44,7 +44,16 @@ options = runOptions
 
 runOptions :: Parser Options
 runOptions =
-  RunOptions <$> templateSource <*> dataSource <*> techMode <*> optional outputSpec
+  RunOptions <$> debugFlags <*> templateSource <*> dataSource <*> techMode <*> optional outputSpec
+
+
+debugFlags :: Parser Int
+debugFlags =
+  flag 0 1 (
+      long "debug"
+    <> short 'd'
+    <> help "Enable debug mode"
+  )
 
 outputSpec :: Parser OutputSpec
 outputSpec =

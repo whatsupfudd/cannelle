@@ -27,6 +27,8 @@ import Data.Text (Text, unpack, pack)
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Vector as V
 
+import Data.Time.Clock (getCurrentTime, diffUTCTime)
+
 import qualified Data.Aeson as JSON
 import qualified Data.Yaml as YAML
 
@@ -51,7 +53,7 @@ import qualified Cannelle.PHP.Parse as Ph
 import Cannelle.PHP.Print (printPhpContext)
 
 import qualified Cannelle.React.Parse as Rc
-import Cannelle.React.Print (printReactContext)
+import Cannelle.React.Print (printReactContext, printContextStats)
 
 import qualified Cannelle.FileUnit.InOut as Fio
 
@@ -63,13 +65,13 @@ main = do
     args <- getArgs
     options <- parseOptions args
     case options of
-      RunOptions tpl dat tech mbOut ->
+      RunOptions rtOpts tpl dat tech mbOut ->
         case tech of
           Jinja -> runJinja tpl dat
           Hugo -> runHugo tpl dat mbOut
           PHP -> runPHP tpl dat
           Fuddle -> runFuddle tpl dat
-          React -> runReact tpl dat
+          React -> runReact rtOpts tpl dat
 
 
 loadData :: DataSource -> IO (Either YAML.ParseException (HashMap Text JSON.Value))
@@ -171,11 +173,14 @@ runFuddle tplSrc dataSrc = do
   pure ()
 
 
-runReact :: TemplateSource -> DataSource -> IO ()
-runReact tplSrc dataSrc = do
+runReact :: Int -> TemplateSource -> DataSource -> IO ()
+runReact rtOpts tplSrc dataSrc = do
   rezA <- case tplSrc of
     TemplateFromFile fn -> do
-      rezB <- Rc.tsParseReact True fn
+      start <- getCurrentTime
+      rezB <- Rc.tsParseReact (rtOpts > 0) fn
+      end <- getCurrentTime
+      -- putStrLn $ "@[runReact] tsParseReact time: " <> show (diffUTCTime end start)
       case rezB of
         Left errMsg ->
           putStrLn $ "@[runReact] tsParseReact err: " <> show errMsg
@@ -184,6 +189,7 @@ runReact tplSrc dataSrc = do
           content <- BS.readFile fn
           putStrLn "\n"
           printReactContext content ctx
+          -- printContextStats ctx
           putStrLn "\n"
     TemplateFromStdin ->
       putStrLn "@[runReact] TemplateFromStdin not supported yet."

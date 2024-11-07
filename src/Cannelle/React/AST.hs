@@ -133,11 +133,18 @@ data TsxTopLevel =
   | EnumDeclTL
   | ModuleDeclTL
   | AmbientDeclTL
+  | InterfaceDeclTL
   deriving Show
 
 data Parameter =
-  ObjectPatternP Identifier
+  ObjectPatternP [FieldSpecification]
   | IdentifierP Identifier
+  deriving Show
+
+
+data FieldSpecification =
+  SimpleSpecFS Identifier
+  | AssignmentFS Identifier TsxExpression
   deriving Show
 
 data TypedParameter =
@@ -149,6 +156,9 @@ data TypeAnnotation =
   ObjectTypeTA
   | ArrayTypeTA
   | PredefinedTypeTA DefinedType
+  | TypeIdentifierTA Int
+  | NestedTA Identifier Int
+  | GenericTA
   deriving Show
 
 data DefinedType =
@@ -161,7 +171,7 @@ data TsxStatement =
   CompoundST [TsxStatement]
   | ExpressionST TsxExpression
   | DeclarationST
-  | IfST
+  | IfST TsxExpression TsxStatement (Maybe TsxStatement)
   | SwitchST
   | ForST
   | ForInST
@@ -172,42 +182,78 @@ data TsxStatement =
   | LabelST
   -- Export defaultFlag Item-exported
   | ExportST Bool ExportItem
-  | ImportST ImportKind StringValue
-  | ReturnST TsxExpression
+  | ImportST Bool (Maybe ImportKind) StringValue
+  | ReturnST (Maybe TsxExpression)
   -- Where is this in the grammar?
-  | LexicalDeclST
+  | LexicalDeclST Bool VarDecl
+  | FunctionDeclST TsxExpression      -- Always a FunctionDefEX.
+  -- Warning, duplicates the CommentEX...
+  | CommentST Int
   deriving Show
+
+data VarDecl =
+  VarDecl VarAssignee (Maybe TypeAnnotation) TsxExpression
+  deriving Show
+
+data VarAssignee =
+  IdentifierA Identifier
+  | ObjectPatternA [Identifier]
+  | ArrayPatternA [Identifier]
+  deriving Show
+
 
 data ExportItem =
   IdentifierEI Identifier
   | FunctionEI TsxTopLevel  -- Always a FunctionDeclTL.
+  | TypeEI TsxTopLevel
+  | LexicalEI TsxStatement
+  | InterfaceEI TsxTopLevel
   deriving Show
 
 data ImportKind =
   SingleIK Int
-  | NamedIK [ Int ]
+  -- True => type symbol.
+  | NamedIK [ (Bool, Int) ]
+  | EntireFileIK StringValue
   deriving Show
 
 data TsxExpression =
-  TernaryEX
+  TernaryEX TsxExpression TsxExpression TsxExpression
   | BinaryEX TsxExpression BinaryOperator TsxExpression
-  | UnaryEX
+  | UnaryEX PrefixOperator TsxExpression
   | PrimaryEX
-  | AssignmentEX
+  | AssignmentEX TsxExpression TsxExpression
   -- TS:
   | PropAssignEX
   | GetAccessorEX
   | SetAccessorEX
-  | CallEX MemberSelector [TsxExpression]
-  | FunctionDefEX (Maybe Int) [TypedParameter] [TsxStatement]
-  | ArrowFunctionEX [TypedParameter] TsxExpression
+  | CallEX CallerSpec [TsxExpression]
+  | FunctionDefEX Bool (Maybe Int) [TypedParameter] (Maybe TypeAnnotation) [TsxStatement]
+  | ArrowFunctionEX [TypedParameter] ArrowFunctionBody
   | ParenEX TsxExpression
   -- Where are those in the grammar definition?
   | NonNullEX TsxExpression
+  | ArrayEX [TsxExpression]
+  | InstanceEX [InstanceValue]
   | LiteralEX LiteralValue
   | VarAccessEX Identifier
   | MemberAccessEX MemberSelector
+  | AsTypeValueEX TsxExpression TypeAnnotation
   | JsxElementEX JsxElement
+  | AwaitEX TsxExpression
+  | CommentEX Int
+  deriving Show
+
+
+data ArrowFunctionBody =
+  StmtBodyAF [TsxStatement]
+  | ExprBodyAF TsxExpression
+  deriving Show
+
+
+data CallerSpec =
+  SimpleIdentCS Identifier
+  | MemberCS MemberSelector
   deriving Show
 
 
@@ -221,25 +267,27 @@ data MemberPrefix =
   | ComposedMemberSel MemberSelector
   | CallMemberSel TsxExpression
   | NonNullSel TsxExpression
+  | SubscriptMemberSel MemberPrefix TsxExpression
   deriving Show
 
 
 data JsxElement =
-  SelfClosingJex Identifier [(Int, JsxAttribute)]
+  SelfClosingJex [Identifier] [(Maybe Int, Maybe JsxAttribute)]
   | JsxElement JsxOpening [JsxElement] (Maybe JsxClosing)
   | ExpressionJex JsxTsxExpr
   | TextJex Int
+  | HtmlCharRefJex StringFragment
   deriving Show
 
 
 data JsxOpening =
-  JsxOpening Identifier [(Int, JsxAttribute)]
+  JsxOpening [Identifier] [(Maybe Int, Maybe JsxAttribute)]
   | JsxEmptyOpening
   deriving Show
 
 
 data JsxClosing =
-  JsxClosing Identifier
+  JsxClosing [Identifier]
   | JsxEmptyClosing
   deriving Show
 
@@ -317,16 +365,40 @@ data BinaryOperator =
   deriving Show
 
 
-newtype LiteralValue =
-  StringLT StringValue
+data InstanceValue = 
+  Pair Identifier TsxExpression
+  | MethodDef Identifier [TypedParameter] TsxStatement
+  | VarAccessIV Identifier
   deriving Show
 
-newtype StringValue =
-  QuotedString Int
+
+data LiteralValue =
+  StringLT StringValue
+  | NumberLT Int
+  | BooleanLT Bool
+  | StrTemplateLT [StringFragment]
+  | NullLT
   deriving Show
+
+
+data StringValue =
+  QuotedStringSV [StringFragment]
+  | EmptyStringSV
+  deriving Show
+
+
+data StringFragment =
+  SimpleSV Int
+  | EscapeSequenceSV Int
+  | TemplateSubstitutionSV TsxExpression
+  | HtmlCharRefSV Int
+  deriving Show
+
 
 data Identifier =
   SimpleId Int
   | ShortHandId Int
+  | ShortHandPatternId Int
   | PropertyId Int
+  | SpreadElementId TsxExpression
   deriving Show

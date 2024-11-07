@@ -8,6 +8,8 @@ import Data.Text (pack, unpack)
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
+import Data.Time.Clock (getCurrentTime, diffUTCTime)
+
 import Foreign.C.String ( newCStringLen, peekCString )
 import Foreign.Ptr ( Ptr, nullPtr )
 import Foreign.Marshal.Alloc ( malloc, free )
@@ -42,7 +44,10 @@ tryParseReact debugMode parser path = do
   tmplString <- Bs.readFile path
 
   (cStr, strLen) <- newCStringLen $ unpack . T.decodeUtf8 $ tmplString
+  start <- getCurrentTime
   tree <- ts_parser_parse_string parser nullPtr cStr strLen
+  end <- getCurrentTime
+  putStrLn $ "@[tryParseReact] ts_parser_parse_string time: " <> show (diffUTCTime end start)
 
   mem <- malloc
   ts_tree_root_node_p tree mem
@@ -54,7 +59,10 @@ tryParseReact debugMode parser path = do
   poke tsNodeMem nodeA.nodeTSNode
 
   children <- mallocArray childCount
+  start <- getCurrentTime
   ts_node_copy_child_nodes tsNodeMem children
+  end <- getCurrentTime
+  putStrLn $ "@[tryParseReact] ts_node_copy_child_nodes time: " <> show (diffUTCTime end start)
 
   rezA <- parseTsAst debugMode children childCount
 
@@ -79,11 +87,17 @@ parseTsAst :: Bool -> Ptr Node -> Int -> IO (Either CompError ReactContext)
 parseTsAst debugMode children count = do
   -- TODO: define the debug flag as part of parameters.
   -- algo: do the descent of ts nodes and extract into verbatim and logic blocks; parse the syntax of each logic block, reassemble into a tree of statements/expressions.
+  start <- getCurrentTime
   nodeGraph <- analyzeChildren 0 children count
+  end <- getCurrentTime
+  -- putStrLn $ "@[parseTsAst] analyzeChildren time: " <> show (diffUTCTime end start)
   -- putStrLn $ "@[parseTsChildren] nodeGraph: " <> show nodeGraph
   when debugMode $ mapM_ (printNode 0) nodeGraph
+  start <- getCurrentTime
   let
     scanRez = tsxScanner nodeGraph
+  end <- getCurrentTime
+  --putStrLn $ "@[parseTsAst] tsxScanner time: " <> show (diffUTCTime end start)
   case scanRez of
     Left err -> pure . Left $ CompError [(0, "@[parseTsAst] testScannerB err: " <> show err)]
     Right context -> pure $ Right context
