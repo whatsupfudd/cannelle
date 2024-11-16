@@ -40,7 +40,7 @@ oDbg str p =
 
 
 -- *** The parser part: ***
-gramParse :: Maybe String ->BS.ByteString -> Either String [FileUnitElement]
+gramParse :: Maybe String -> BS.ByteString -> Either String [FileUnitElement]
 gramParse mbFileName input =
   let
     fileName = fromMaybe "<<unk>>" mbFileName

@@ -26,8 +26,28 @@ import Cannelle.Common.Error (CompError (..))
 import Cannelle.TreeSitter.Types (NodeEntry(..))
 import Cannelle.TreeSitter.Print (printNode)
 
+import qualified Cannelle.FileUnit.Types as Ft
+
 import Cannelle.React.AST (ReactContext(..))
 import Cannelle.React.Parser (tsxScanner)
+
+
+parseFromContent :: Bool -> FilePath -> Bs.ByteString -> Maybe FilePath -> IO (Either String Ft.FileUnit)
+parseFromContent debugMode filePath sourceContent mbOutPath = do
+  parser <- ts_parser_new
+  ts_parser_set_language parser tree_sitter_tsx
+  rezA <- tryParseReactFromContent debugMode parser filePath sourceContent
+  case rezA of
+    Left err -> pure . Left $ show err
+    Right aValue -> pure . Right $ Ft.FileUnit {
+          name = Just "TEST"
+          , description = Nothing
+          , constants = V.empty
+          , definitions = V.empty
+          , routing = V.empty
+          , imports = V.empty
+      }
+
 
 
 tsParseReact :: Bool -> FilePath -> IO (Either CompError ReactContext)
@@ -42,8 +62,12 @@ tsParseReact debugMode filePath = do
 tryParseReact :: Bool -> Ptr Parser -> FilePath -> IO (Either CompError ReactContext)
 tryParseReact debugMode parser path = do
   tmplString <- Bs.readFile path
+  tryParseReactFromContent debugMode parser path tmplString
 
-  (cStr, strLen) <- newCStringLen $ unpack . T.decodeUtf8 $ tmplString
+
+tryParseReactFromContent :: Bool -> Ptr Parser -> FilePath -> Bs.ByteString -> IO (Either CompError ReactContext)
+tryParseReactFromContent debugMode parser path content = do
+  (cStr, strLen) <- newCStringLen $ unpack . T.decodeUtf8 $ content
   start <- getCurrentTime
   tree <- ts_parser_parse_string parser nullPtr cStr strLen
   end <- getCurrentTime
