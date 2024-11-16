@@ -90,14 +90,14 @@ parseTsAst debugMode children count = do
   start <- getCurrentTime
   nodeGraph <- analyzeChildren 0 children count
   end <- getCurrentTime
-  -- putStrLn $ "@[parseTsAst] analyzeChildren time: " <> show (diffUTCTime end start)
+  putStrLn $ "@[parseTsAst] analyzeChildren time: " <> show (diffUTCTime end start)
   -- putStrLn $ "@[parseTsChildren] nodeGraph: " <> show nodeGraph
   when debugMode $ mapM_ (printNode 0) nodeGraph
   start <- getCurrentTime
   let
     scanRez = tsxScanner nodeGraph
   end <- getCurrentTime
-  --putStrLn $ "@[parseTsAst] tsxScanner time: " <> show (diffUTCTime end start)
+  putStrLn $ "@[parseTsAst] tsxScanner time: " <> show (diffUTCTime end start)
   case scanRez of
     Left err -> pure . Left $ CompError [(0, "@[parseTsAst] testScannerB err: " <> show err)]
     Right context -> pure $ Right context

@@ -1,23 +1,34 @@
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
+{-# LANGUAGE BangPatterns #-}
 module Cannelle.React.Print where
 
 import qualified Data.ByteString as Bs
 import qualified Data.Vector as V
 import Data.List (intercalate)
 
+import Data.Time.Clock (getCurrentTime, diffUTCTime)
+
 import Cannelle.TreeSitter.Print (fetchContent)
 import Cannelle.React.AST
 
 
 printReactContext :: Bs.ByteString -> ReactContext -> IO ()
-printReactContext content ctxt =
+printReactContext content ctxt = do
+  startA <- getCurrentTime
   let
     cLines = V.fromList $ Bs.split 10 content
     demandLines = V.map (fetchContent cLines) $ V.zip ctxt.contentDemands (V.fromList [0..])
-  in do
+  endA <- getCurrentTime
+  startB <- getCurrentTime
   putStrLn $ "@[printReactContext] topLevel: " <> showTopLevel (V.toList ctxt.tlElements)
   putStrLn $ "@[printReactContext] contentDemands: "
+  endB <- getCurrentTime
+  startC <- getCurrentTime
   V.mapM_ putStrLn demandLines
+  endC <- getCurrentTime
+  putStrLn $ "@[printReactContext] cLines/demandLines time: " <> show (diffUTCTime endA startA)
+  putStrLn $ "@[printReactContext] showTopLevel time: " <> show (diffUTCTime endB startB)
+  putStrLn $ "@[printReactContext] putStrLn demandLines time: " <> show (diffUTCTime endC startC)
   where
   showTopLevel :: [TsxTopLevel] -> String
   showTopLevel =
@@ -26,8 +37,11 @@ printReactContext content ctxt =
 
 printContextStats :: ReactContext -> IO ()
 printContextStats ctxt = do
+  startA <- getCurrentTime
   putStrLn $ "@[printContextStats] # elements: " <> show (V.length ctxt.tlElements)
   putStrLn $ "@[printContextStats] # contentDemands: " <> show (V.length ctxt.contentDemands)
+  endA <- getCurrentTime
+  putStrLn $ "@[printContextStats] time: " <> show (diffUTCTime endA startA)
 
 {-
 The React AST to display is made of:
@@ -77,7 +91,7 @@ data TsxExpression =
 -}
 
 showATopLevel :: Int -> TsxTopLevel -> String
-showATopLevel level topLevel =
+showATopLevel !level !topLevel =
   let
     indent = replicate (level * 2) ' '
   in
@@ -93,7 +107,7 @@ showATopLevel level topLevel =
 
 
 showStatement :: Int -> TsxStatement -> String
-showStatement level stmt =
+showStatement !level !stmt =
   let
     indent = replicate (level * 2) ' '
   in
@@ -135,7 +149,7 @@ showStatement level stmt =
 
 
 showVarDecl :: Int -> VarDecl -> String
-showVarDecl level (VarDecl ident mbType expr) =
+showVarDecl !level (VarDecl !ident !mbType !expr) =
   let
     indent = replicate (level * 2) ' '
   in
@@ -143,7 +157,7 @@ showVarDecl level (VarDecl ident mbType expr) =
 
 
 showTypeDecl :: Int -> TsxTopLevel -> String
-showTypeDecl level typeDecl =
+showTypeDecl !level !typeDecl =
   let
     indent = replicate (level * 2) ' '
   in
@@ -151,7 +165,7 @@ showTypeDecl level typeDecl =
 
 
 showExpression :: Int -> TsxExpression -> String
-showExpression level expr =
+showExpression !level !expr =
   let
     indent = replicate (level * 2) ' '
   in
@@ -191,7 +205,7 @@ showExpression level expr =
 
 
 showJsxElement :: Int -> JsxElement -> String
-showJsxElement level expr =
+showJsxElement !level !expr =
   let
     indent = replicate (level * 2) ' '
   in
@@ -204,8 +218,9 @@ showJsxElement level expr =
     TextJex value -> indent <> "TextJex " <> show value
     HtmlCharRefJex value -> indent <> "HtmlCharRefJex " <> show value
 
+
 showJsxOpening :: Int -> JsxOpening -> String
-showJsxOpening level opening =
+showJsxOpening !level !opening =
   let
     indent = replicate (level * 2) ' '
   in

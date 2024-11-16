@@ -188,8 +188,8 @@ runReact rtOpts tplSrc dataSrc = do
           -- putStrLn $ "@[runReact] ctx: " <> show ctx <> "\n"
           content <- BS.readFile fn
           putStrLn "\n"
-          printReactContext content ctx
-          -- printContextStats ctx
+          -- printReactContext content ctx
+          printContextStats ctx
           putStrLn "\n"
     TemplateFromStdin ->
       putStrLn "@[runReact] TemplateFromStdin not supported yet."
