@@ -13,7 +13,6 @@ import Cannelle.React.Parser.Types
 import Cannelle.React.Parser.Support
 
 import Cannelle.React.AST
-import Cannelle.Fuddle.Compiler (CompileUnit(CompileUnit))
 import Cannelle.PHP.Parser.Statements (functionDefS)
 
 
@@ -45,9 +44,9 @@ statementS = debugOpt "statementS" $ do
 
 blockS :: ScannerP [TsxStatement]
 blockS = do
-  S.symbol "{"
+  S.single "{"
   rez <- many statementS
-  S.symbol "}"
+  S.single "}"
   pure rez
 
 

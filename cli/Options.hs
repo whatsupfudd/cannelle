@@ -28,6 +28,7 @@ data TechMode =
   | PHP
   | Fuddle
   | React
+  | Haskell
 
 
 parseOptions :: [String] -> IO Options
@@ -122,13 +123,18 @@ techMode =
     <> short 'p'
     <> help "Use the PHP template engine"
   )
-  <|> flag' Fuddle (
-       long "fuddle"
-    <> short 'f'
-    <> help "Use the Fuddle template engine"
+  <|> flag' Haskell (
+       long "haskell"
+    <> short 'k'
+    <> help "Use the Haskell template engine"
   )
   <|> flag' React (
        long "react"
     <> short 'r'
     <> help "Use the React template engine"
+  )
+  <|> flag' Fuddle (
+       long "fuddle"
+    <> short 'f'
+    <> help "Use the Elm template engine"
   )

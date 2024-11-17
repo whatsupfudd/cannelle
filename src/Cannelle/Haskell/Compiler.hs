@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use record patterns" #-}
-module Cannelle.Fuddle.Compiler where
+module Cannelle.Haskell.Compiler where
 
 import Control.Monad (foldM, when)
 import Control.Monad.State (State, get, put, runState, modify)
@@ -21,7 +21,7 @@ import Cannelle.VM.OpCodes (OpCode (..), toInstr, opParCount, PcPtrT (..))
 import Cannelle.VM.Context (MainText, VMModule (..), FunctionDef (..), ConstantValue (..)
                 , ModuledDefinition (..), FunctionCode (..), SecondOrderType (..)
                 , FirstOrderType (..))
-import Cannelle.Fuddle.AST
+import Cannelle.Haskell.AST
 
 
 data ReferenceDetails =

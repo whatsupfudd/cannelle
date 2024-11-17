@@ -40,6 +40,7 @@ dependencies:
   - tree-sitter-haskell
   - tree-sitter-php
   - tree-sitter-tsx
+  - tree-sitter-elm
   # For PHP:
   - deepseq
   # For binary parsing:

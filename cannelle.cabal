@@ -25,11 +25,18 @@ source-repository head
 library
   exposed-modules:
       Cannelle.Common.Error
+      Cannelle.Common.TsAST
       Cannelle.FileUnit.InOut
       Cannelle.FileUnit.Types
       Cannelle.Fuddle.AST
-      Cannelle.Fuddle.Compiler
+      Cannelle.Fuddle.Parse
       Cannelle.Fuddle.Parser
+      Cannelle.Fuddle.Parser.Statements
+      Cannelle.Fuddle.Parser.Types
+      Cannelle.Fuddle.Print
+      Cannelle.Haskell.AST
+      Cannelle.Haskell.Compiler
+      Cannelle.Haskell.Parser
       Cannelle.Hugo.ActionMerger
       Cannelle.Hugo.Assembler
       Cannelle.Hugo.AST
@@ -54,6 +61,7 @@ library
       Cannelle.Jinja.Run.FuncUtils
       Cannelle.Jinja.Run.Type
       Cannelle.Jinja.Run.VM
+      Cannelle.Parser.Debug
       Cannelle.PHP.AST
       Cannelle.PHP.NeParser
       Cannelle.PHP.Parse
@@ -121,6 +129,7 @@ library
     , time >=0.1.6.0 && <1.13
     , transformers >=0.3 && <0.7
     , tree-sitter
+    , tree-sitter-elm
     , tree-sitter-haskell
     , tree-sitter-php
     , tree-sitter-tsx
@@ -168,6 +177,7 @@ executable cannelle
     , time >=0.1.6.0 && <1.13
     , transformers >=0.3 && <0.7
     , tree-sitter
+    , tree-sitter-elm
     , tree-sitter-haskell
     , tree-sitter-php
     , tree-sitter-tsx
@@ -214,6 +224,7 @@ test-suite cannelle-test
     , time >=0.1.6.0 && <1.13
     , transformers >=0.3 && <0.7
     , tree-sitter
+    , tree-sitter-elm
     , tree-sitter-haskell
     , tree-sitter-php
     , tree-sitter-tsx

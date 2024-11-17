@@ -13,7 +13,7 @@ import Control.Monad.Trans.Maybe
 
 import Data.Int (Int32)
 import Data.List (sortOn)
-import qualified Data.ByteString as BS
+import qualified Data.ByteString as Bs
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.ByteString.Lazy as LBS
 import Data.Default ( def )
@@ -47,7 +47,8 @@ import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourc
 
 import qualified Cannelle.Hugo.Parse as Hg
 import qualified Cannelle.Hugo.Exec as Hg
-import qualified Cannelle.Fuddle.Parser as Fd
+import qualified Cannelle.Haskell.Parser as Hs
+import qualified Cannelle.Fuddle.Parse as Fd
 
 import qualified Cannelle.PHP.Parse as Ph
 import Cannelle.PHP.Print (printPhpContext)
@@ -70,8 +71,9 @@ main = do
           Jinja -> runJinja tpl dat
           Hugo -> runHugo tpl dat mbOut
           PHP -> runPHP tpl dat
-          Fuddle -> runFuddle tpl dat
+          Haskell -> runHaskell tpl dat
           React -> runReact rtOpts tpl dat
+          Fuddle -> runFuddle rtOpts tpl dat
 
 
 loadData :: DataSource -> IO (Either YAML.ParseException (HashMap Text JSON.Value))
@@ -156,20 +158,20 @@ runPHP tplSrc dataSrc = do
         Left errMsg ->
           putStrLn $ "@[runPHP] tsParsePhp err: " <> show errMsg
         Right stmts -> do
-          content <- BS.readFile fn
+          content <- Bs.readFile fn
           printPhpContext content stmts
     TemplateFromStdin ->
       putStrLn $ "@[runPHP] TemplateFromStdin not supported yet."
   pure ()
 
 
-runFuddle :: TemplateSource -> DataSource -> IO ()
-runFuddle tplSrc dataSrc = do
+runHaskell :: TemplateSource -> DataSource -> IO ()
+runHaskell tplSrc dataSrc = do
   rezA <- case tplSrc of
     TemplateFromFile fn ->
-      pure . Left $ "@[runFuddle] TemplateFromFile not supported yet."
+      pure . Left $ "@[runHaskell] TemplateFromFile not supported yet."
     TemplateFromStdin ->
-      pure . Left $ "@[runFuddle] TemplateFromStdin not supported yet."
+      pure . Left $ "@[runHaskell] TemplateFromStdin not supported yet."
   pure ()
 
 
@@ -186,7 +188,7 @@ runReact rtOpts tplSrc dataSrc = do
           putStrLn $ "@[runReact] tsParseReact err: " <> show errMsg
         Right ctx -> do
           -- putStrLn $ "@[runReact] ctx: " <> show ctx <> "\n"
-          content <- BS.readFile fn
+          content <- Bs.readFile fn
           putStrLn "\n"
           -- printReactContext content ctx
           printContextStats ctx
@@ -194,6 +196,25 @@ runReact rtOpts tplSrc dataSrc = do
     TemplateFromStdin ->
       putStrLn "@[runReact] TemplateFromStdin not supported yet."
   pure ()
+
+
+runFuddle :: Int -> TemplateSource -> DataSource -> IO ()
+runFuddle rtOpts tplSrc dataSrc = do
+  rezA <- case tplSrc of
+    TemplateFromFile fn -> do
+      start <- getCurrentTime
+      rezB <- Fd.parse (rtOpts > 0) fn
+      end <- getCurrentTime
+      putStrLn $ "@[runElm] tsParseElm time: " <> show (diffUTCTime end start)
+      case rezB of
+        Left errMsg ->
+          putStrLn $ "@[runElm] tsParseReact err: " <> show errMsg
+        Right ctx -> do
+          putStrLn $ "@[runElm] ctx: " <> show ctx <> "\n"
+    TemplateFromStdin ->
+      putStrLn "@[runElm] TemplateFromStdin not supported yet."
+  pure ()
+
 
 printParserError :: Maybe String -> ParserError -> IO ()
 printParserError srcMay = putStrLn . formatParserError srcMay
@@ -228,7 +249,7 @@ decodeString :: (JSON.FromJSON v) => String -> IO (Either YAML.ParseException v)
 decodeString = return . YAML.decodeEither' . UTF8.fromString
 
 decodeStdin :: (JSON.FromJSON v) => IO (Either YAML.ParseException v)
-decodeStdin = YAML.decodeEither' <$> BS.getContents
+decodeStdin = YAML.decodeEither' <$> Bs.getContents
 
 printF :: GVal (Run p IO Html)
 printF = fromFunction $ go
