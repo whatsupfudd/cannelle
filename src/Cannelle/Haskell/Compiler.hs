@@ -146,7 +146,7 @@ compileAstTree nTree =
           let
             tmpMain = FunctionDef {
               moduleID = 0
-              , fname = "$main"
+              , fname = "$topOfModule"
               , args = Nothing
               , returnType = FirstOrderSO StringTO
               , heapSize = 1

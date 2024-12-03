@@ -78,6 +78,10 @@ library
       Cannelle.React.Parser.Types
       Cannelle.React.Print
       Cannelle.React.Types
+      Cannelle.Templog.Parse
+      Cannelle.Templog.Parser
+      Cannelle.Templog.Print
+      Cannelle.Templog.Types
       Cannelle.TreeSitter.Class
       Cannelle.TreeSitter.Debug
       Cannelle.TreeSitter.Error

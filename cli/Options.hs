@@ -10,7 +10,7 @@ data TemplateSource =
   | TemplateFromStdin
 
 
-data DataSource = 
+data DataSource =
     DataFromFile FilePath
   | DataLiteral String
   | DataFromStdin
@@ -19,7 +19,7 @@ data DataSource =
 newtype OutputSpec = OutputSpec FilePath
 
 
-data Options = RunOptions Int TemplateSource DataSource TechMode (Maybe OutputSpec)
+data Options = RunOptions Int DataSource TechMode (Maybe OutputSpec) TemplateSource
 
 
 data TechMode =
@@ -27,8 +27,8 @@ data TechMode =
   | Hugo
   | PHP
   | Fuddle
-  | React
-  | Haskell
+  | Tsx
+  | Templog
 
 
 parseOptions :: [String] -> IO Options
@@ -45,7 +45,7 @@ options = runOptions
 
 runOptions :: Parser Options
 runOptions =
-  RunOptions <$> debugFlags <*> templateSource <*> dataSource <*> techMode <*> optional outputSpec
+  RunOptions <$> debugFlags <*> dataSource <*> actionSpec <*> optional outputSpec <*> templateSource
 
 
 debugFlags :: Parser Int
@@ -67,12 +67,8 @@ outputSpec =
 
 templateSource :: Parser TemplateSource
 templateSource =
-  convert <$> option str (
-       long "template"
-    <> short 't'
-    <> metavar "TEMPLATE"
-    <> help "Load ginger template from this file"
-    <> value "-"
+  convert <$> strArgument (
+    help "template file location (or '-' for stdin)"
   )
   where
     convert "-" = TemplateFromStdin
@@ -105,36 +101,17 @@ dataLiteral =
         <> value "{}"
         )
 
+actionSpec :: Parser TechMode
+actionSpec =
+  subparser $ command "run" (info (techMode <**> helper) (
+      progDesc "Run the template engine"
+    ))
 
 techMode :: Parser TechMode
 techMode =
-  flag' Jinja (
-      long "jinja"
-    <> short 'j'
-    <> help "Use the Jinja template engine"
-  )
-  <|> flag' Hugo (
-       long "hugo"
-    <> short 'g'
-    <> help "Use the Hugo template engine"
-  )
-  <|> flag' PHP (
-       long "php"
-    <> short 'p'
-    <> help "Use the PHP template engine"
-  )
-  <|> flag' Haskell (
-       long "haskell"
-    <> short 'k'
-    <> help "Use the Haskell template engine"
-  )
-  <|> flag' React (
-       long "react"
-    <> short 'r'
-    <> help "Use the React template engine"
-  )
-  <|> flag' Fuddle (
-       long "fuddle"
-    <> short 'f'
-    <> help "Use the Elm template engine"
-  )
+  subparser $ command "jinja" (info (pure Jinja) (progDesc "Use the Jinja template engine"))
+    <> command "hugo" (info (pure Hugo) (progDesc "Use the Hugo template engine"))
+    <> command "php" (info (pure PHP) (progDesc "Use the PHP template engine"))
+    <> command "templog" (info (pure Templog) (progDesc "Use the Templog template engine"))
+    <> command "tsx" (info (pure Tsx) (progDesc "Use the TypeScript-TSX template engine"))
+    <> command "fuddle" (info (pure Fuddle) (progDesc "Use the Fuddle template engine"))

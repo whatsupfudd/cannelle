@@ -47,7 +47,7 @@ import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourc
 
 import qualified Cannelle.Hugo.Parse as Hg
 import qualified Cannelle.Hugo.Exec as Hg
-import qualified Cannelle.Haskell.Parser as Hs
+import qualified Cannelle.Templog.Parse as Tp
 import qualified Cannelle.Fuddle.Parse as Fd
 
 import qualified Cannelle.PHP.Parse as Ph
@@ -66,13 +66,13 @@ main = do
     args <- getArgs
     options <- parseOptions args
     case options of
-      RunOptions rtOpts tpl dat tech mbOut ->
+      RunOptions rtOpts dat tech mbOut tpl->
         case tech of
           Jinja -> runJinja tpl dat
           Hugo -> runHugo tpl dat mbOut
           PHP -> runPHP tpl dat
-          Haskell -> runHaskell tpl dat
-          React -> runReact rtOpts tpl dat
+          Templog -> runTemplog tpl dat
+          Tsx -> runTsx rtOpts tpl dat
           Fuddle -> runFuddle rtOpts tpl dat
 
 
@@ -165,36 +165,43 @@ runPHP tplSrc dataSrc = do
   pure ()
 
 
-runHaskell :: TemplateSource -> DataSource -> IO ()
-runHaskell tplSrc dataSrc = do
+runTemplog :: TemplateSource -> DataSource -> IO ()
+runTemplog tplSrc dataSrc = do
   rezA <- case tplSrc of
-    TemplateFromFile fn ->
-      pure . Left $ "@[runHaskell] TemplateFromFile not supported yet."
+    TemplateFromFile fn -> do
+      rezA <- Tp.parse fn
+      case rezA of
+        Left err -> pure $ Left (show err)
+        Right fileTempl -> do
+          putStrLn $ "@[runTemplog] fileTempl:\n" <> show fileTempl
+          pure $ Right fileTempl
     TemplateFromStdin ->
-      pure . Left $ "@[runHaskell] TemplateFromStdin not supported yet."
-  pure ()
+      pure . Left $ "@[runTemplog] TemplateFromStdin not supported yet."
+  case rezA of
+    Left err -> putStrLn err
+    Right fileTempl -> pure ()
 
 
-runReact :: Int -> TemplateSource -> DataSource -> IO ()
-runReact rtOpts tplSrc dataSrc = do
+runTsx :: Int -> TemplateSource -> DataSource -> IO ()
+runTsx rtOpts tplSrc dataSrc = do
   rezA <- case tplSrc of
     TemplateFromFile fn -> do
       start <- getCurrentTime
       rezB <- Rc.tsParseReact (rtOpts > 0) fn
       end <- getCurrentTime
-      -- putStrLn $ "@[runReact] tsParseReact time: " <> show (diffUTCTime end start)
+      -- putStrLn $ "@[runTsx] tsParseTsx time: " <> show (diffUTCTime end start)
       case rezB of
         Left errMsg ->
-          putStrLn $ "@[runReact] tsParseReact err: " <> show errMsg
+          putStrLn $ "@[runTsx] tsParseTsx err: " <> show errMsg
         Right ctx -> do
-          -- putStrLn $ "@[runReact] ctx: " <> show ctx <> "\n"
+          -- putStrLn $ "@[runTsx] ctx: " <> show ctx <> "\n"
           content <- Bs.readFile fn
           putStrLn "\n"
-          -- printReactContext content ctx
+          -- printTsxContext content ctx
           printContextStats ctx
           putStrLn "\n"
     TemplateFromStdin ->
-      putStrLn "@[runReact] TemplateFromStdin not supported yet."
+      putStrLn "@[runTsx] TemplateFromStdin not supported yet."
   pure ()
 
 
@@ -205,14 +212,14 @@ runFuddle rtOpts tplSrc dataSrc = do
       start <- getCurrentTime
       rezB <- Fd.parse (rtOpts > 0) fn
       end <- getCurrentTime
-      putStrLn $ "@[runElm] tsParseElm time: " <> show (diffUTCTime end start)
+      putStrLn $ "@[runFuddle] tsParseFuddle time: " <> show (diffUTCTime end start)
       case rezB of
         Left errMsg ->
-          putStrLn $ "@[runElm] tsParseReact err: " <> show errMsg
+          putStrLn $ "@[runFuddle] tsParseFuddle err: " <> show errMsg
         Right ctx -> do
-          putStrLn $ "@[runElm] ctx: " <> show ctx <> "\n"
+          putStrLn $ "@[runFuddle] ctx: " <> show ctx <> "\n"
     TemplateFromStdin ->
-      putStrLn "@[runElm] TemplateFromStdin not supported yet."
+      putStrLn "@[runFuddle] TemplateFromStdin not supported yet."
   pure ()
 
 

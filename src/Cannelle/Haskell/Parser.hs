@@ -26,7 +26,7 @@ type Parser = M.Parsec Void Text
 
 reservedWords :: [Text]
 reservedWords =
-  [ "if", "then", "else", "import", "True", "False" ]
+  [ "if", "then", "else", "import", "qualified", "as", "True", "False" ]
 
 oDbg str p =
   if False then MD.dbg str p else p
@@ -170,28 +170,28 @@ parseVerbatimBlock vBlock = Right $ VerbatimBlock vBlock
 
 
 run :: String -> Text -> Either (M.ParseErrorBundle Text Void) StatementFd
-run = M.parse fuddleStmt
+run = M.parse tmplStmt
 
 runTest :: Text -> IO ()
-runTest = M.parseTest fuddleStmt
+runTest = M.parseTest tmplStmt
 
 
-fuddleParser :: Parser StatementFd
-fuddleParser = M.between spaceF M.eof fuddleStmt
+tmplParser :: Parser StatementFd
+tmplParser = M.between spaceF M.eof tmplStmt
 
 {- Top-level parsers: -}
-fuddleStmt :: Parser StatementFd
-fuddleStmt = curlies stmtSequence <|> stmtSequence
+tmplStmt :: Parser StatementFd
+tmplStmt = curlies stmtSequence <|> stmtSequence
 
 stmtSequence :: Parser StatementFd
-stmtSequence = stmtFilter <$> M.sepBy1 fuddleStmt' endOfStmt
+stmtSequence = stmtFilter <$> M.sepBy1 tmplStmt' endOfStmt
   where
     stmtFilter aList = if length aList == 1 then head aList else SeqST aList
 
 
 {- Statement parsers: -}
-fuddleStmt' :: Parser StatementFd
-fuddleStmt' =
+tmplStmt' :: Parser StatementFd
+tmplStmt' =
   oDbg "stmt" $ asum [
       oDbg "bind-stmt" $ M.try bindStmt      -- <qual-ident> = <expr>
       , oDbg "val-stmt" valueStmt     -- <expr>
