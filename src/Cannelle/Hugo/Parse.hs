@@ -15,19 +15,20 @@ import qualified Data.Vector as V
 import System.IO
 import System.IO.Error (tryIOError)
 
-import qualified Cannelle.Hugo.Parser as P
-import qualified Cannelle.Hugo.CompilerA as C
-import qualified Cannelle.Hugo.CompilerB as C
-import qualified Cannelle.Hugo.CompilerC as C
-import qualified Cannelle.Hugo.Assembler as A
-import qualified Cannelle.Hugo.AST as Ha
-import qualified Cannelle.Hugo.Types as Ht
-import Cannelle.Hugo.ActionMerger (consolidateActions, printStatements)
-import Cannelle.Hugo.Types (CompContext (..))
+import qualified Cannelle.Assembler.Logic as A
+import Cannelle.Compiler.Types (CompContext (..))
+import qualified Cannelle.Compiler.Types as Ct
 import qualified Cannelle.VM.Context as Vc
 
 import qualified Cannelle.FileUnit.Types as Ft
 import qualified Cannelle.FileUnit.InOut as Fio
+
+import Cannelle.Hugo.ActionMerger (consolidateActions, printStatements)
+import qualified Cannelle.Hugo.AST as Ha
+import qualified Cannelle.Hugo.Parser as P
+import qualified Cannelle.Hugo.CompilerA as C
+import qualified Cannelle.Hugo.CompilerB as C
+import qualified Cannelle.Hugo.CompilerC as C
 
 
 parseBString :: Bs.ByteString -> IO (Either String Ft.FileUnit)
@@ -123,14 +124,14 @@ compile rtOpts filePath rStatements =
                         ) V.empty ctxB.constantPool
                 }
   where
-  hugoCteToTmpl :: Ht.CompConstant -> Ft.ConstantTpl
-  hugoCteToTmpl (Ht.IntC i) = Ft.IntegerP $ fromIntegral i
-  hugoCteToTmpl (Ht.DoubleC d) = Ft.DoubleP d
-  hugoCteToTmpl (Ht.BoolC b) = Ft.BoolP b
-  hugoCteToTmpl (Ht.StringC s) = Ft.StringP s
-  hugoCteToTmpl (Ht.VerbatimC s) = Ft.StringP s
+  hugoCteToTmpl :: Ct.CompConstant -> Ft.ConstantTpl
+  hugoCteToTmpl (Ct.IntC i) = Ft.IntegerP $ fromIntegral i
+  hugoCteToTmpl (Ct.DoubleC d) = Ft.DoubleP d
+  hugoCteToTmpl (Ct.BoolC b) = Ft.BoolP b
+  hugoCteToTmpl (Ct.StringC s) = Ft.StringP s
+  hugoCteToTmpl (Ct.VerbatimC s) = Ft.StringP s
 
-  hugoFctToTmpl :: Ht.CompFunction -> Ft.FunctionDefTpl
+  hugoFctToTmpl :: Ct.CompFunction Ha.FStatement -> Ft.FunctionDefTpl
   hugoFctToTmpl compFct = Ft.FunctionDefTpl {
         name = compFct.name
       , args = V.empty

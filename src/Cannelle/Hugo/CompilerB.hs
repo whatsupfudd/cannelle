@@ -12,8 +12,10 @@ import qualified Data.Vector as V
 
 import Cannelle.Common.Error (CompError (..), splitResults)
 import Cannelle.VM.Context (MainText, ConstantValue (..))
-import qualified Cannelle.Hugo.Assembler as A
+import qualified Cannelle.Assembler.Logic as A
+import Cannelle.Compiler.Types (GenCompileResult, CompContext (..), CompFunction (..), ConstantEntries (..),CompType (..), SimpleType (..), CompConstant (..), StructField (..), ConstantMap (..))
 
+import Cannelle.Hugo.AST (FStatement)
 import Cannelle.Hugo.Types
 
 
@@ -116,7 +118,7 @@ partB ctxtB =
 
 
 -- Enter all related strings into the string table and build a raw fct ref.
-registerFctType :: CompFunction -> GenCompileResult HugoCompileCtxt (Int32, (Int32, Int32, Int32, Int32, [Int32]))
+registerFctType :: CompFunction FStatement -> GenCompileResult HugoCompileCtxt FStatement (Int32, (Int32, Int32, Int32, Int32, [Int32]))
 registerFctType fct = do
   nameID <- A.addStringConstant fct.name
   let

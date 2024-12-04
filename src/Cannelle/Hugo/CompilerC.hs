@@ -11,9 +11,11 @@ import Cannelle.Common.Error (CompError (..), concatErrors, splitResults)
 -- import Cannelle.VM.OpCodes
 import Cannelle.VM.Context (MainText)
 
-import qualified Cannelle.Hugo.Assembler as A
-import qualified Cannelle.Hugo.Common as C
+import qualified Cannelle.Assembler.Logic as A
+import Cannelle.Compiler.Types (GenCompileResult, CompContext (..), CompFunction (..), ConstantMap (..))
 import Cannelle.VM.OpCodes
+
+import qualified Cannelle.Hugo.Common as C
 import Cannelle.Hugo.AST
 import Cannelle.Hugo.Types
 
@@ -31,7 +33,7 @@ compPhaseC ctx =
     (Nothing, _) -> Right finalContext
     (Just errs, _) -> Left errs
   where
-  compileFunction :: CompFunction -> GenCompileResult HugoCompileCtxt ()
+  compileFunction :: CompFunction FStatement -> GenCompileResult HugoCompileCtxt FStatement ()
   compileFunction fctDef = do
     modify $ \ctx ->
       let
@@ -54,7 +56,7 @@ compPhaseC ctx =
 
 -- *** Statement opcode generation. *** ---
 
-genStmtOps :: FStatement -> GenCompileResult HugoCompileCtxt ()
+genStmtOps :: FStatement -> GenCompileResult HugoCompileCtxt FStatement ()
 genStmtOps stmt@(FStatement { as = VerbatimFS verbatimID }) = do
   ctx <- get
   case Mp.lookup verbatimID ctx.cteMaps.txtCteMap of
@@ -293,7 +295,7 @@ genStmtOps (FStatement { as = NoOpFS }) = pure $ Right ()
 
 -- *** Expression opcode generation. *** ---
 
-genExprOps :: FExpression -> GenCompileResult HugoCompileCtxt ()
+genExprOps :: FExpression -> GenCompileResult HugoCompileCtxt FStatement ()
 
 genExprOps expr@(FExpression { ae = LiteralEC literal }) = do
   ctx <- get

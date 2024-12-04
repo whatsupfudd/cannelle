@@ -3,6 +3,7 @@ module Cannelle.Haskell.Parser where
 import Control.Applicative (asum, optional, many, (<|>), some)
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as Bi
 import Data.Functor (($>))
 import Data.Maybe (fromMaybe, isJust, fromMaybe)
 import Data.Sequence (Seq, fromList)
@@ -14,19 +15,34 @@ import qualified Data.Text.Encoding as TE
 
 import qualified Control.Monad.Combinators.Expr as CE
 import qualified Text.Megaparsec as M
-import qualified Text.Megaparsec.Char as M
-import qualified Text.Megaparsec.Char.Lexer as ML
+-- import qualified Text.Megaparsec.Char as M
+-- import qualified Text.Megaparsec.Char.Lexer as ML
+import qualified Text.Megaparsec.Byte as M
+import qualified Text.Megaparsec.Byte.Lexer as L
 import qualified Text.Megaparsec.Debug as MD
+
+
 
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.Haskell.AST
 
 
-type Parser = M.Parsec Void Text
+type Parser = M.Parsec Void BS.ByteString
 
-reservedWords :: [Text]
-reservedWords =
-  [ "if", "then", "else", "import", "qualified", "as", "True", "False" ]
+
+isReservedWord :: BS.ByteString -> Bool
+isReservedWord word =
+  case word of
+    "if" -> True
+    "then" -> True
+    "else" -> True
+    "import" -> True
+    "qualified" -> True
+    "as" -> True
+    "True" -> True
+    "False" -> True
+    _ -> False
+
 
 oDbg str p =
   if False then MD.dbg str p else p
@@ -36,8 +52,7 @@ oDbg str p =
 parseLogicBlock :: (Int, Int) -> String -> BS.ByteString -> IO (Either CompError BlockAst)
 parseLogicBlock startOffset codeName blockText = do
   let
-    logicText = TE.decodeUtf8
-          . BS.dropWhileEnd (\c -> c == 32 || c == 10) . BS.dropWhile (\c -> c == 32 || c == 10)
+    logicText = BS.dropWhileEnd (\c -> c == 32 || c == 10) . BS.dropWhile (\c -> c == 32 || c == 10)
           . BS.dropWhileEnd (== 125) . BS.dropWhile (== 123) $ blockText
     eiParseRez = run codeName logicText
   -- runTest logicText
@@ -45,7 +60,7 @@ parseLogicBlock startOffset codeName blockText = do
     Left err ->
       -- putStrLn $ "@[parseLogicBlock] run err: " ++ show err
       -- "@[parseLogicBlock] parse err: " <>
-      pure . Left $ CompError [(0, unpack $ displayError startOffset err)]
+      pure . Left $ CompError [(0, unpack . TE.decodeUtf8 $ displayError startOffset err)]
     Right parseRez ->
       -- putStrLn $ "@[parseLogicBlock] parseRez: " ++ show parseRez
       pure . Right $ LogicBlock parseRez
@@ -146,12 +161,12 @@ astBlocksToTree aBlocks =
               (updTop, stack, result)
 
 
-displayError :: (Int, Int) -> M.ParseErrorBundle Text Void -> Text
+displayError :: (Int, Int) -> M.ParseErrorBundle BS.ByteString Void -> BS.ByteString
 displayError lOffset err =
   let
     nErr = adjustLineOffset lOffset err
   in
-  pack $ M.errorBundlePretty nErr
+  TE.encodeUtf8 . pack $ M.errorBundlePretty nErr
 
 
 adjustLineOffset :: (Int, Int) -> M.ParseErrorBundle s e -> M.ParseErrorBundle s e
@@ -169,45 +184,51 @@ parseVerbatimBlock :: BS.ByteString -> Either CompError BlockAst
 parseVerbatimBlock vBlock = Right $ VerbatimBlock vBlock
 
 
-run :: String -> Text -> Either (M.ParseErrorBundle Text Void) StatementFd
+run :: String -> BS.ByteString -> Either (M.ParseErrorBundle BS.ByteString Void) StatementTl
 run = M.parse tmplStmt
 
-runTest :: Text -> IO ()
+runTest :: BS.ByteString -> IO ()
 runTest = M.parseTest tmplStmt
 
 
-tmplParser :: Parser StatementFd
-tmplParser = M.between spaceF M.eof tmplStmt
-
 {- Top-level parsers: -}
-tmplStmt :: Parser StatementFd
+tmplStmt :: Parser StatementTl
 tmplStmt = curlies stmtSequence <|> stmtSequence
 
-stmtSequence :: Parser StatementFd
-stmtSequence = stmtFilter <$> M.sepBy1 tmplStmt' endOfStmt
-  where
-    stmtFilter aList = if length aList == 1 then head aList else SeqST aList
+
+stmtSequence :: Parser StatementTl
+stmtSequence = do
+  stmts <- singleStmt `M.sepBy1` endOfStmt
+  pure $ case stmts of
+    [a] -> a
+    _ -> SeqST stmts
 
 
 {- Statement parsers: -}
-tmplStmt' :: Parser StatementFd
-tmplStmt' =
+singleStmt :: Parser StatementTl
+singleStmt =
   oDbg "stmt" $ asum [
       oDbg "bind-stmt" $ M.try bindStmt      -- <qual-ident> = <expr>
-      , oDbg "val-stmt" valueStmt     -- <expr>
+      , oDbg "val-stmt" expressionStmt     -- <expr>
       , oDbg "short-stmt" shortStmt     -- @? <expr> @[
       , oDbg "blck-stmt" blockEnd      -- @]
       , oDbg "elif-stmt" elseIfStmt    -- else if <expr> @[
       , oDbg "imp-stmt" importStmt    -- import [qualified] <qual-ident> [ as <alias> ]
     ]
 
-blockEnd :: Parser StatementFd
-blockEnd = do
-  symbol "@]"
-  pure BlockEndST
+bindStmt :: Parser StatementTl
+bindStmt = do
+  a <- oDbg "bind-ident" qualifiedIdent
+  b <- oDbg "bind-args" $ many qualifiedIdent
+  symbol "="
+  BindOneST (a, b) <$> expressionFd
 
 
-elseIfStmt :: Parser StatementFd
+expressionStmt :: Parser StatementTl
+expressionStmt = ExpressionST <$> expressionFd
+
+
+elseIfStmt :: Parser StatementTl
 elseIfStmt = do
   a <- optional $ pReservedWord "else"
   pReservedWord "if"
@@ -216,11 +237,13 @@ elseIfStmt = do
   args <- optional (symbol "\\" *> some identifier)
   pure $ ElseIfShortST (isJust a) cond args
 
-shortStmt :: Parser StatementFd
+
+shortStmt :: Parser StatementTl
 shortStmt =
   ifElseNilSS
 
-ifElseNilSS :: Parser StatementFd
+
+ifElseNilSS :: Parser StatementTl
 ifElseNilSS = do
   pReservedWord "@?"
   cond <- expressionFd
@@ -228,7 +251,14 @@ ifElseNilSS = do
   args <- optional (symbol "\\" *> some identifier)
   pure $ IfElseNilSS cond args
 
-importStmt :: Parser StatementFd
+
+blockEnd :: Parser StatementTl
+blockEnd = do
+  symbol "@]"
+  pure BlockEndST
+
+
+importStmt :: Parser StatementTl
 importStmt = do
   pReservedWord "import"
   a <- optional $ pReservedWord "qualified"
@@ -244,18 +274,6 @@ importStmt = do
   pure $ ImportST (isJust a) b c (fromMaybe [] d)
 
 
-bindStmt :: Parser StatementFd
-bindStmt = do
-  a <- oDbg "bind-ident" qualifiedIdent
-  b <- oDbg "bind-args" $ many qualifiedIdent
-  symbol "="
-  BindOneST (a, b) <$> expressionFd
-
-
-valueStmt :: Parser StatementFd
-valueStmt = ExpressionST <$> expressionFd
-
-
 expressionFd =
   oDbg "expr" $ asum [
       oDbg "pars-expr" parensExpr
@@ -265,7 +283,7 @@ expressionFd =
       , oDbg "array-expr" arrayExpr
     ]
 
-nonOperExpr :: Parser Expression
+nonOperExpr :: Parser ExpressionTl
 nonOperExpr =
   oDbg "no-expr" $ asum [
     oDbg "pars-no-expr" parensExpr
@@ -275,7 +293,7 @@ nonOperExpr =
   ]
 
 
-parensExpr :: Parser Expression
+parensExpr :: Parser ExpressionTl
 parensExpr = do
     symbol "("
     a <- oDbg "expr-pars" expressionFd
@@ -291,12 +309,12 @@ parensExpr = do
 -}
 
 
-literalExpr :: Parser Expression
+literalExpr :: Parser ExpressionTl
 literalExpr =
   LiteralExpr <$> asum [
       oDbg "arit-lit" $ NumeralValue <$> integer
       , oDbg "bool-lit" boolValue
-      , oDbg "char-lit" $ CharValue <$> M.between (M.char '\'') (M.char '\'') ML.charLiteral <* M.space
+      , oDbg "char-lit" $ CharValue <$> singleQuoted M.anySingle  --  <* M.space
       , oDbg "str-lit" $ StringValue <$> stringLiteral
     ]
 
@@ -307,7 +325,7 @@ boolValue =
   <|> (pReservedWord "False" $> BoolValue True)
 
 
-arrayExpr :: Parser Expression
+arrayExpr :: Parser ExpressionTl
 arrayExpr = do
   symbol "["
   a <- M.sepBy expressionFd (symbol ",")
@@ -317,12 +335,12 @@ arrayExpr = do
 
 {- Terms for operators: -}
 
-operatorExpr :: Parser Expression
+operatorExpr :: Parser ExpressionTl
 operatorExpr = oDbg "operatorExpr" $ CE.makeExprParser nonOperExpr precOperators  -- expressionFd
 
 {- Operators: -}
 
-precOperators :: [[CE.Operator Parser Expression]]
+precOperators :: [[CE.Operator Parser ExpressionTl]]
 precOperators = [
     [
       CE.Prefix (UnaryExpr NegateOP <$ symbol "-")
@@ -370,7 +388,7 @@ precOperators = [
   ]
 
 
-reductionExpr :: Parser Expression
+reductionExpr :: Parser ExpressionTl
 reductionExpr = do
   a <- oDbg "redu-ident" qualifiedIdent
   b <- oDbg "redu-args" $ M.optional $ M.try (many expressionFd)
@@ -379,27 +397,27 @@ reductionExpr = do
 
 {- Utilities for parsing: -}
 spaceF :: Parser ()
-spaceF = ML.space M.space1 lineCmnt blockCmnt
+spaceF = L.space M.space1 lineCmnt blockCmnt
   where
-    lineCmnt  = ML.skipLineComment "--"
-    blockCmnt = ML.skipBlockComment "{-" "-}"
+    lineCmnt  = L.skipLineComment "--"
+    blockCmnt = L.skipBlockComment "{-" "-}"
 
 
 lexeme :: Parser a -> Parser a
-lexeme = ML.lexeme spaceF
+lexeme = L.lexeme spaceF
 
 
-symbol :: Text -> Parser Text
-symbol = ML.symbol spaceF
+symbol :: BS.ByteString -> Parser BS.ByteString
+symbol = L.symbol spaceF
 
 
-endOfStmt :: Parser Text
+endOfStmt :: Parser BS.ByteString
 endOfStmt = symbol "\n" <|> symbol ";"
 
-stringLiteral :: Parser Text
-stringLiteral = pack <$> M.between (symbol "\"") (symbol "\"") (many stringChar)
+stringLiteral :: Parser BS.ByteString
+stringLiteral = BS.pack <$> quoted (many stringChar)
   where
-    stringChar = M.char '\\' *> M.anySingle <|> M.noneOf ['"']
+    stringChar = M.char (Bi.c2w '\\') *> M.anySingle <|> M.noneOf [Bi.c2w '"']
 
 
 -- | 'parens' parses something between parenthesis.
@@ -410,26 +428,33 @@ parens = M.between (symbol "(") (symbol ")")
 curlies :: Parser a -> Parser a
 curlies = M.between (symbol "{") (symbol "}")
 
+quoted :: Parser a -> Parser a
+quoted = M.between (symbol "\"") (symbol "\"")
+
+singleQuoted :: Parser a -> Parser a
+singleQuoted = M.between (M.char (Bi.c2w '\'')) (M.char (Bi.c2w '\''))
+
 -- | 'integer' parses an integer.
 
 integer :: Parser Int
-integer = lexeme ML.decimal
+integer = lexeme L.decimal
 
 
-pReservedWord :: Text -> Parser ()
+pReservedWord :: BS.ByteString -> Parser ()
 pReservedWord w = M.string w *> M.notFollowedBy M.alphaNumChar *> spaceF
 
 
-identifier :: Parser Text
+identifier :: Parser BS.ByteString
 identifier = (lexeme . M.try) (pChars >>= check)
   where
-    pChars :: Parser Text
-    pChars = cons <$> M.letterChar <*> (pack <$> many M.alphaNumChar)
-    check :: Text -> Parser Text
-    check w = if w `elem` reservedWords then
+    pChars :: Parser BS.ByteString
+    pChars = BS.pack <$> ((:) <$> M.letterChar <*> many M.alphaNumChar)
+    check :: BS.ByteString -> Parser BS.ByteString
+    check w = if isReservedWord w then
                 fail $ "keyword " ++ show w ++ " cannot be an identifier"
               else
                 pure w
+
 
 qualifiedIdent :: Parser QualifiedIdent
 qualifiedIdent = do

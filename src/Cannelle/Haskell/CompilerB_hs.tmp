@@ -1,0 +1,95 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use record patterns" #-}
+module Cannelle.Haskell.CompilerB where
+
+import Control.Monad (foldM, when)
+import Control.Monad.State (State, get, put, runState, modify)
+
+import Data.Int (Int32)
+import Data.Text (Text, pack)
+import Data.Text.Encoding (encodeUtf8)
+import Data.ByteString (ByteString)
+import Data.List (sortBy)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.Vector as V
+import qualified Data.Map as Mp
+import qualified Crypto.Hash.MD5 as Cr
+import qualified Data.Text.Encoding as TE
+
+import Cannelle.Common.Error (CompError (..))
+import Cannelle.Compiler.Types (GenCompileResult, CompContext (..), CompFunction (..), ConstantMap (..))
+import Cannelle.VM.OpCodes (OpCode (..), toInstr, opParCount, PcPtrT (..))
+import Cannelle.VM.Context (ConstantValue(..))
+import Cannelle.FileUnit.Types (FileUnit (..), ImportTpl (..), FunctionDefTpl (..))
+
+import Cannelle.Haskell.AST
+
+
+type FullCompContext = CompContext () StatementTl
+
+
+compile :: Bool -> FilePath -> [NodeAst] -> IO (Either String FileUnit)
+compile rtOpts filePath nodes =
+  -- putStrLn $ "@[runHugo] statements:"
+  -- Hg.printStatements statements
+  case compPhaseA "$topOfModule" nodes of
+    Left err ->
+      pure . Left $ "@[compile] compileStatements err: " <> show err
+    Right (ctxA, remaningStmts) -> do
+      when rtOpts $ do
+        putStrLn $ "@[compile] ctx.fctRefCte: " <> show ctxA.cteEntries.fctRefCte
+        putStrLn $ "@[compile] ctx.cteMaps.txtCteMap: " <> show ctxA.cteMaps.txtCteMap
+        putStrLn $ "@[compile] ctx.cteMaps.fctCteMap: " <> show ctxA.cteMaps.fctCteMap
+        putStrLn $ "@[compile] ctx.cteMaps.fctSlotMap: " <> show ctxA.cteMaps.fctSlotMap
+      pure . Right $ FileUnit {
+            name = Just . encodeUtf8 . pack $ filePath
+          , description = Nothing
+          , constants = ctxA.constantPool
+          , definitions = V.fromList $ map tlFctToTmpl ctxA.phaseBFct
+          , routing = V.empty
+          , imports =
+              foldl (\accum cte -> case cte of
+                    FunctionRefRaw moduleID labelID returnTypeID argTypeID argNameIDs ->
+                      if moduleID > 1 then
+                        V.snoc accum (ImportTpl False moduleID labelID returnTypeID argTypeID argNameIDs)
+                      else
+                        accum
+                    _ -> accum
+                ) V.empty ctxA.constantPool
+        }
+
+
+tlFctToTmpl :: CompFunction StatementTl -> FunctionDefTpl
+tlFctToTmpl fct = FunctionDefTpl {
+  name = fct.fname
+  , args = fct.args
+  , returnType = fct.returnType
+  , bytecode = V.fromList $ concatMap toInstr fct.body
+  , ops = V.empty
+  , labels = Mp.empty
+  }
+
+
+initCompContext :: Mp.Map MainText a -> CompContext () StatementTl
+initCompContext = CompContext {
+  cteEntries = initCteEntries Mp.empty
+  , cteMaps = initCteMaps Mp.empty
+  , phaseBFct = V.empty
+  }
+
+
+compPhaseA :: ByteString -> [NodeAst] -> Either CompError (CompContext () StatementTl)
+compPhaseA topName nodes =
+  let
+    compCtxt = initCompContext Mp.empty
+  in
+  runState (mapM compileNode nodes) compCtxt
+
+
+type CompileResult = GenCompileResult () StatementTl (CompContext () StatementTl)
+
+
+compileNode :: NodeAst -> CompileResult
+compileNode node = do
+  modify $ \ctx -> ctx { phaseBFct = V.snoc ctx.phaseBFct (compileFct node) }
+  return ctx

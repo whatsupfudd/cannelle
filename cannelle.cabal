@@ -24,8 +24,11 @@ source-repository head
 
 library
   exposed-modules:
+      Cannelle.Assembler.Logic
       Cannelle.Common.Error
       Cannelle.Common.TsAST
+      Cannelle.Compiler.Debug
+      Cannelle.Compiler.Types
       Cannelle.FileUnit.InOut
       Cannelle.FileUnit.Types
       Cannelle.Fuddle.AST
@@ -38,15 +41,14 @@ library
       Cannelle.Haskell.Compiler
       Cannelle.Haskell.Parser
       Cannelle.Hugo.ActionMerger
-      Cannelle.Hugo.Assembler
       Cannelle.Hugo.AST
       Cannelle.Hugo.Common
       Cannelle.Hugo.CompilerA
       Cannelle.Hugo.CompilerB
       Cannelle.Hugo.CompilerC
-      Cannelle.Hugo.Defines
       Cannelle.Hugo.Exec
       Cannelle.Hugo.NativeLib.All
+      Cannelle.Hugo.NativeLib.Defines
       Cannelle.Hugo.Parse
       Cannelle.Hugo.Parser
       Cannelle.Hugo.TemplateConv

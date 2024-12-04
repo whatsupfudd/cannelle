@@ -22,15 +22,17 @@ import qualified Crypto.Hash.MD5 as Cr
 import Cannelle.Common.Error (CompError (..), concatErrors, splitResults)
 -- import Cannelle.VM.OpCodes
 import Cannelle.VM.Context (MainText)
-import qualified Cannelle.Hugo.Common as C
-import qualified Cannelle.Hugo.Assembler as A
-import qualified Cannelle.Hugo.Defines as D
-import Cannelle.Hugo.AST
+import qualified Cannelle.Assembler.Logic as A
+import qualified Cannelle.Hugo.NativeLib.Defines as D
+import Cannelle.Compiler.Types (GenCompileResult, CompContext (..), CompFunction (..), CompType (..), SimpleType (..))
+import Cannelle.Compiler.Debug (showCompContext)
 
+import qualified Cannelle.Hugo.Common as C
+import Cannelle.Hugo.AST
 import Cannelle.Hugo.Types
 
-type StmtCompRez = GenCompileResult HugoCompileCtxt FStatement
-type ExprCompRez = GenCompileResult HugoCompileCtxt FExpression
+type StmtCompRez = GenCompileResult HugoCompileCtxt FStatement FStatement
+type ExprCompRez = GenCompileResult HugoCompileCtxt FStatement FExpression
 
 
 fakePos :: Position

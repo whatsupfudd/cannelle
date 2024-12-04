@@ -6,6 +6,7 @@ import Control.Monad (foldM, when)
 import Control.Monad.State (State, get, put, runState, modify)
 
 import Data.Int (Int32)
+import Data.Word (Word8)
 import Data.Text (Text, pack)
 import Data.Text.Encoding (encodeUtf8)
 import Data.ByteString (ByteString)
@@ -240,7 +241,7 @@ compileNode node=
       pure ()
 
 
-compileStmt :: StatementFd -> [NodeAst] -> CompileResult
+compileStmt :: StatementTl -> [NodeAst] -> CompileResult
 compileStmt ast children =
   case ast of
     SeqST stmts -> do
@@ -300,7 +301,7 @@ compileStmt ast children =
 
 
 {- Expressions: -}
-compileExpr :: Expression -> CompileResult
+compileExpr :: ExpressionTl -> CompileResult
 compileExpr expr =
   case expr of
     LiteralExpr literal -> compileLiteral literal
@@ -330,13 +331,13 @@ compileBool :: Bool -> CompileResult
 compileBool lit =
   emitOp $ PUSH_BOOL_IMM lit
 
-compileChar :: Char -> CompileResult
+compileChar :: Word8 -> CompileResult
 compileChar lit =
-  emitOp $ PUSH_CHAR_IMM lit
+  emitOp $ PUSH_INT_IMM $ fromIntegral lit
 
-compileString :: Text -> CompileResult
+compileString :: ByteString -> CompileResult
 compileString lit = do
-  strID <- addStringConstant $ TE.encodeUtf8 lit
+  strID <- addStringConstant lit
   emitOp $ PUSH_CONST strID
 
 compileLitArray :: [ LiteralValue ] -> CompileResult
@@ -345,7 +346,7 @@ compileLitArray lit =
   pure ()
 
 {- Array: -}
-compileExprArray :: [ Expression ] -> CompileResult
+compileExprArray :: [ ExpressionTl ] -> CompileResult
 compileExprArray exprArray =
   let
     arrayID = 0  -- get new array storage ID.
@@ -356,7 +357,7 @@ compileExprArray exprArray =
 
 
 {- Operations: -}
-compileUniOper :: UnaryOp -> Expression -> CompileResult
+compileUniOper :: UnaryOp -> ExpressionTl -> CompileResult
 compileUniOper oper exprA = do
   compileExpr exprA
   case oper of
@@ -365,7 +366,7 @@ compileUniOper oper exprA = do
     NotOP -> emitOp BNOT
     BitNotOP -> emitOp BNOT
 
-compileBinOper :: BinaryOp -> Expression -> Expression -> CompileResult
+compileBinOper :: BinaryOp -> ExpressionTl -> ExpressionTl -> CompileResult
 compileBinOper oper exprA exprB = do
   compileExpr exprA
   compileExpr exprB
@@ -394,7 +395,7 @@ compileBinOper oper exprA exprB = do
     -- TODO: array ops (concat, car-add).
 
 {- Reduction: an identifier that is the main definition, and additional expressions that are the parameters to apply to the identifier -}
-compileReduction :: QualifiedIdent -> [ Expression ] -> CompileResult
+compileReduction :: QualifiedIdent -> [ ExpressionTl ] -> CompileResult
 compileReduction qualIdent exprArray = do
   {- TODO:
   - find the identifier in the context,

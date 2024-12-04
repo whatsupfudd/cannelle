@@ -1,4 +1,4 @@
-module Cannelle.Hugo.Assembler where
+module Cannelle.Assembler.Logic where
 
 import Control.Monad.State (State, get, put, modify)
 import Control.Monad (foldM)
@@ -16,10 +16,10 @@ import qualified Crypto.Hash.MD5 as Cr
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.VM.OpCodes (OpCode (..), PcPtrT (..), opParCount, toInstr)
 import Cannelle.VM.Context (MainText, ConstantValue (..))
-import Cannelle.Hugo.Types (GenCompileResult (..), CompContext (..), CompFunction (..), CompConstant (..), ConstantEntries (..), ConstantMap (..))
+import Cannelle.Compiler.Types (GenCompileResult (..), CompContext (..), CompFunction (..), CompConstant (..), ConstantEntries (..), ConstantMap (..))
 
 
-emitOp :: (Show sc) => OpCode -> GenCompileResult sc ()
+emitOp :: (Show subCtxtT) => OpCode -> GenCompileResult subCtxtT statementT ()
 emitOp instr = do
   ctx <- get
   let
@@ -29,7 +29,7 @@ emitOp instr = do
   pure $ Right ()
 
 
-newLabel :: (Show sc) => State (CompContext sc) Int32
+newLabel :: (Show subCtxtT) => State (CompContext subCtxtT statementT) Int32
 newLabel = do
   ctx <- get
   let
@@ -40,7 +40,7 @@ newLabel = do
   pure labelID
 
 
-setLabelPos :: (Show sc) => Int32 -> GenCompileResult sc ()
+setLabelPos :: (Show subCtxtT) => Int32 -> GenCompileResult subCtxtT statementT()
 setLabelPos labelID = do
   ctx <- get
   let
@@ -65,15 +65,15 @@ setLabelPos labelID = do
           pure $ Right ()
 
 
-addStringConstant :: (Show sc) => MainText -> State (CompContext sc) Int32
+addStringConstant :: (Show subCtxtT) => MainText -> State (CompContext subCtxtT statementT) Int32
 addStringConstant newConst =
   addTypedConstant (StringC newConst) $ Cr.hash newConst
 
-addVerbatimConstant :: (Show sc) => MainText -> State (CompContext sc) Int32
+addVerbatimConstant :: (Show subCtxtT) => MainText -> State (CompContext subCtxtT statementT) Int32
 addVerbatimConstant newConst =
   addTypedConstant (VerbatimC newConst) $ Cr.hash newConst
 
-addDoubleConstant :: (Show sc) => Double -> State (CompContext sc) Int32
+addDoubleConstant :: (Show subCtxtT) => Double -> State (CompContext subCtxtT statementT) Int32
 addDoubleConstant newConst = do
   ctx <- get
   let
@@ -87,7 +87,7 @@ addDoubleConstant newConst = do
       pure cteID
 
 
-addTypedConstant :: (Show sc) => CompConstant -> MainText -> State (CompContext sc) Int32
+addTypedConstant :: (Show subCtxtT) => CompConstant -> MainText -> State (CompContext subCtxtT statementT) Int32
 addTypedConstant newConst md5Hash = do
     ctx <- get
     let
@@ -102,7 +102,7 @@ addTypedConstant newConst md5Hash = do
         pure index
 
 
-assemble :: CompFunction -> Either String (V.Vector Int32)
+assemble :: CompFunction statementT -> Either String (V.Vector Int32)
 assemble fct =
   case derefLabels fct.opcodes fct.labels of
     Left err -> Left err

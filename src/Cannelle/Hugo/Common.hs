@@ -14,13 +14,14 @@ import qualified Crypto.Hash.MD5 as Cr
 
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.VM.Context (MainText)
-import Cannelle.Hugo.Defines (impRevModules)
-import Cannelle.Hugo.Assembler (addStringConstant)
-import Cannelle.Hugo.AST (Variable (..), FStatement (..))
+import Cannelle.Assembler.Logic (addStringConstant)
+import Cannelle.Compiler.Types (CompContext (..), FctDefComp (..), CompType (..), SimpleType (..), CompFunction (..), ConstantEntries (..), ConstantMap (..), GenCompileResult, FunctionRef (..), StructField (..))
+import Cannelle.Hugo.NativeLib.Defines (impRevModules)
 import Cannelle.Hugo.Types
+import Cannelle.Hugo.AST (Variable (..), FStatement (..))
 
 
-initCompContext :: (Show subCtxt) => MainText -> subCtxt -> Mp.Map Int32 (MainText, Maybe Int32) -> Mp.Map MainText [(FctDefComp, Int32)] -> CompContext subCtxt
+initCompContext :: (Show subCtxt) => MainText -> subCtxt -> Mp.Map Int32 (MainText, Maybe Int32) -> Mp.Map MainText [(FctDefComp, Int32)] -> CompContext subCtxt FStatement
 initCompContext funcLabel subCtxt impModules impFcts = CompContext {
     hasFailed = Nothing
   , cteEntries = initConstantEntries
@@ -64,7 +65,7 @@ initConstantMaps = ConstantMap {
   }
 
 
-initCompFunction :: MainText -> Int32 -> CompFunction
+initCompFunction :: MainText -> Int32 -> CompFunction FStatement
 initCompFunction aLabel fctID = CompFunction {
       name = aLabel
     , uid = fctID
@@ -128,7 +129,7 @@ dereferVariable (Variable varKind label) = do
 
 
 -- TODO: refactor:
-pushIterLabels :: (Show sc) => (Int32, Int32) -> GenCompileResult sc ()
+pushIterLabels :: (Show subCtxtT) => (Int32, Int32) -> GenCompileResult subCtxtT FStatement ()
 pushIterLabels iterLabels = do
   ctx <- get
   let
@@ -138,7 +139,7 @@ pushIterLabels iterLabels = do
   pure $ Right ()
 
 
-popIterLabels :: (Show sc) => GenCompileResult sc ()
+popIterLabels :: (Show subCtxtT) => GenCompileResult subCtxtT FStatement ()
 popIterLabels = do
   ctx <- get
   let
@@ -148,7 +149,7 @@ popIterLabels = do
   pure $ Right ()
 
 
-getIterLabels :: (Show sc) => State (CompContext sc) (Maybe (Int32, Int32))
+getIterLabels :: (Show subCtxtT) => State (CompContext subCtxtT FStatement) (Maybe (Int32, Int32))
 getIterLabels = do
   ctx <- get
   let
@@ -159,7 +160,7 @@ getIterLabels = do
 
 
 {-- TODO: proper implementation.
-referenceIdent :: (Show sc) => MainText -> RefType -> State (CompContext sc) (Maybe Int32)
+referenceIdent :: (Show subCtxtT) => MainText -> RefType -> State (CompContext subCtxtT FStatement) (Maybe Int32)
 referenceIdent refName refKind = do
   ctx <- get
   let
@@ -175,7 +176,7 @@ referenceIdent refName refKind = do
 -}
 
 
-getFunctionSlot :: (Show sc) => Int32 -> MainText -> State (CompContext sc) Int32
+getFunctionSlot :: (Show subCtxtT) => Int32 -> MainText -> State (CompContext subCtxtT FStatement) Int32
 getFunctionSlot moduleID funcName = do
   -- Warning: do a addStringConstant before or after any ctx update.
   funcNameID <- addStringConstant funcName
@@ -189,14 +190,14 @@ getFunctionSlot moduleID funcName = do
       pure funcID
 
 
-getImportedFunction :: (Show sc) => MainText -> [ CompType ] -> State (CompContext sc) (Maybe [(FctDefComp, Int32)])
+getImportedFunction :: (Show subCtxtT) => MainText -> [ CompType ] -> State (CompContext subCtxtT FStatement) (Maybe [(FctDefComp, Int32)])
 getImportedFunction funcName argTypes= do
   -- TODO: implement the argTypes matching.
   ctx <- get
   pure $ Mp.lookup funcName ctx.importedFcts
 
 
-pushFunctionComp :: (Show sc) => MainText -> GenCompileResult sc Int32
+pushFunctionComp :: (Show subCtxtT) => MainText -> GenCompileResult subCtxtT FStatement Int32
 pushFunctionComp label = do
   ctx <- get
   -- TODO: check that the label exists in the functions map.
@@ -207,7 +208,7 @@ pushFunctionComp label = do
   pure . Right $ fromIntegral funcID
 
 
-pushFunctionV2 :: (Show sc) => Int32 -> GenCompileResult sc Int32
+pushFunctionV2 :: (Show subCtxtT) => Int32 -> GenCompileResult subCtxtT FStatement Int32
 pushFunctionV2 fctID = do
   ctx <- get
   -- TODO: push the function on the phase B stack (opcode generation).
@@ -216,7 +217,7 @@ pushFunctionV2 fctID = do
 
 
 -- TODO: one pop fct for phase A, one for phase B.
-popFunctionComp :: (Show sc) => Int32 -> Int32 -> [ FStatement ] -> GenCompileResult sc ()
+popFunctionComp :: (Show subCtxtT) => Int32 -> Int32 -> [ FStatement ] -> GenCompileResult subCtxtT FStatement ()
 popFunctionComp labelID returnSize body = do
   ctx <- get
   case ctx.curFctDef of
@@ -231,7 +232,7 @@ popFunctionComp labelID returnSize body = do
     _ -> pure $ Left $ CompError [(0, "Closing function comp context on an empty list.")]
 
 
-popFunctionVoid :: (Show sc) => GenCompileResult sc ()
+popFunctionVoid :: (Show subCtxtT) => GenCompileResult subCtxtT FStatement ()
 popFunctionVoid = do
   ctx <- get
   case ctx.curFctDef of
@@ -242,19 +243,19 @@ popFunctionVoid = do
 
 
 -- TODO: implement.
-setFunctionContext :: (Show sc) => Int32 -> GenCompileResult sc ()
+setFunctionContext :: (Show subCtxtT) => Int32 -> GenCompileResult subCtxtT FStatement ()
 setFunctionContext funcID = pure $ Right ()
 
 
 -- TODO: implement. The global context is kept on the context-compile stack and tracks where on the heap the global var has been stored during with/block/partial calls.
-getGlobalContext :: (Show sc) => State (CompContext sc) (Either CompError Int32)
+getGlobalContext :: (Show subCtxtT) => State (CompContext subCtxtT FStatement) (Either CompError Int32)
 getGlobalContext = do
   ctx <- get
   pure $ Right 0
 
 
 -- TODO: implement. The parent context is kept on the context-compile stack, it is one level deeper on the stack (or error if the stack is only one level deep).
-getParentContext :: (Show sc) => State (CompContext sc) (Either CompError Int32)
+getParentContext :: (Show subCtxtT) => State (CompContext subCtxtT FStatement) (Either CompError Int32)
 getParentContext = do
   ctx <- get
   pure $ Right 1

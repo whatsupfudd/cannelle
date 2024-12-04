@@ -1,37 +1,38 @@
 module Cannelle.Haskell.AST where
 
 import Data.ByteString (ByteString)
+import GHC.Word (Word8)
 import Data.Text (Text)
 import Data.List.NonEmpty (NonEmpty)
 
 
-data StatementFd =
-  SeqST [ StatementFd ]
-  | ElseIfShortST Bool Expression (Maybe [Text])
+data StatementTl =
+  SeqST [ StatementTl ]
+  | ElseIfShortST Bool ExpressionTl (Maybe [ByteString])   -- @] else @[ .. @]
   | BlockEndST
-  | IfElseNilSS Expression (Maybe [Text])     -- @? <bool expr> @] (args)
-  | ImportST Bool QualifiedIdent (Maybe QualifiedIdent) [ Text ]
-  | BindOneST IdentWithParam Expression        -- identWithParam = <expression>
-  | LetST [ (IdentWithParam, Expression) ] Expression  -- let [ identWithParam = <expression> ] in <expression>
-  | ExpressionST Expression
+  | IfElseNilSS ExpressionTl (Maybe [ByteString])     -- @? <bool expr> @[ (args) ... @]
+  | ImportST Bool QualifiedIdent (Maybe QualifiedIdent) [ ByteString ]
+  | BindOneST IdentWithParam ExpressionTl        -- identWithParam = <expression>
+  | LetST [ (IdentWithParam, ExpressionTl) ] ExpressionTl  -- let [ identWithParam = <expression> ] in <expression>
+  | ExpressionST ExpressionTl
   deriving Show
 
 
-data Expression =
+data ExpressionTl =
   LiteralExpr LiteralValue
-  | ParenExpr Expression
-  | ArrayExpr [ Expression ]
-  | UnaryExpr UnaryOp Expression
-  | BinOpExpr BinaryOp Expression Expression
-  | ReductionExpr QualifiedIdent [ Expression ]
+  | ParenExpr ExpressionTl
+  | ArrayExpr [ ExpressionTl ]
+  | UnaryExpr UnaryOp ExpressionTl
+  | BinOpExpr BinaryOp ExpressionTl ExpressionTl
+  | ReductionExpr QualifiedIdent [ ExpressionTl ]
   deriving Show
 
 
 data LiteralValue =
   NumeralValue Int
   | BoolValue Bool
-  | CharValue Char
-  | StringValue Text
+  | CharValue Word8
+  | StringValue ByteString
   | TupleValue [ LiteralValue ]
   | ArrayValue [ LiteralValue ]
   deriving Show
@@ -58,12 +59,12 @@ data BinaryOp =
   deriving Show
 
 
-type QualifiedIdent = (NonEmpty Text)
+type QualifiedIdent = (NonEmpty ByteString)
 type IdentWithParam = (QualifiedIdent, [ QualifiedIdent ])
 
 data BlockAst =
   VerbatimBlock ByteString
-  | LogicBlock StatementFd
+  | LogicBlock StatementTl
   deriving Show
 
 data NodeAst =
@@ -72,7 +73,7 @@ data NodeAst =
   deriving Show
 
 data StmtAst = StmtAst {
-      statement :: StatementFd
+      statement :: StatementTl
       , children :: [NodeAst]
     }
   deriving Show

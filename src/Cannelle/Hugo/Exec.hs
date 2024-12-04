@@ -7,7 +7,7 @@ import qualified Data.Map as Mp
 
 import qualified Cannelle.VM.Context as C
 import qualified Cannelle.VM.Engine as E
-import Cannelle.Hugo.Assembler (compCteToFUnit)
+import Cannelle.Assembler.Logic (compCteToFUnit)
 import qualified Cannelle.FileUnit.Types as Fu
 import qualified Cannelle.VM.Context
 

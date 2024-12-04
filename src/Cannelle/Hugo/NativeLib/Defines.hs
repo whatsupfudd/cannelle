@@ -1,4 +1,4 @@
-module Cannelle.Hugo.Defines where
+module Cannelle.Hugo.NativeLib.Defines where
 
 import qualified Data.ByteString as Bs
 import Data.List.NonEmpty (NonEmpty (..))
@@ -6,7 +6,7 @@ import Data.Int (Int32)
 import qualified Data.Map as Mp
 
 import Cannelle.VM.Context (MainText)
-import Cannelle.Hugo.Types
+import Cannelle.Compiler.Types (CompFunction (..), FctDefComp (..), SignaturePart (..), Signature (..), CompType (..), SimpleType (..))
 
 
 impModules :: Mp.Map Int32 (MainText, Maybe Int32)
