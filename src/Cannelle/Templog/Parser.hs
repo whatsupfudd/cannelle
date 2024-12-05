@@ -22,13 +22,14 @@ import TreeSitter.Language (symbolToName, fromTSSymbol)
 import Cannelle.Common.Error (CompError (..))
 import qualified Cannelle.Haskell.Parser as Hp
 import qualified Cannelle.Haskell.Compiler as Hc
+import Cannelle.FileUnit.Types (FileUnit)
 import qualified Cannelle.VM.Context as Vm
 
 import Cannelle.Templog.Types
 
 
-compileParseBlocks :: String -> BS.ByteString -> TemplTsTree -> IO (Either CompError Vm.VMModule)
-compileParseBlocks codeName fileContent tsTree =
+compileParseBlocks :: Bool -> FilePath -> BS.ByteString -> TemplTsTree -> IO (Either CompError FileUnit)
+compileParseBlocks debugMode codeName fileContent tsTree =
   let
     linesList = BS.split 10 fileContent
     lines = Vc.fromList linesList
@@ -61,9 +62,10 @@ compileParseBlocks codeName fileContent tsTree =
         -- putStrLn $ "@[compileParseBlocks] ast tree: " ++ show astTree
         -- TODO: load prelude modules and pass to compileAstTree.
         -- TODO: scan the AST for qualifed identifiers, load the module & term definitions, and also pass to compileAstTree.
-        case Hc.compileAstTree astTree of
+        rezComp <- Hc.compile debugMode codeName [astTree]
+        case rezComp of
           Left err -> pure $ Left err
-          Right vmCode -> pure $ Right vmCode
+          Right fileUnit -> pure $ Right fileUnit
   else
     let
       combinedErrs = foldl (\accum lErr ->

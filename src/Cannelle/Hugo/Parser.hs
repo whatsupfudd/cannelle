@@ -21,10 +21,16 @@ import Data.Void (Void)
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Byte as M
 import qualified Text.Megaparsec.Byte.Lexer as L
-import qualified Text.Megaparsec.Debug as MD
+import Text.Megaparsec.Debug (MonadParsecDbg, dbg)
 
 import Cannelle.Hugo.AST
 
+debugOpt :: (MonadParsecDbg e s m, Show rez) => String -> m rez -> m rez
+debugOpt label p = 
+  if False then
+    dbg label p
+  else
+    p
 
 data ParseState = ParseState {
     newError :: String
@@ -33,10 +39,6 @@ data ParseState = ParseState {
 
 
 type Parser = M.Parsec Void BS.ByteString
-
-
-oDbg str p =
-  if False then MD.dbg str p else p
 
 
 -- *** The parser part: ***
@@ -140,7 +142,7 @@ symbol = L.symbol skipper
 
 
 actionContentParser :: Parser Action
-actionContentParser = oDbg "actionContentParser" $ M.choice [
+actionContentParser = debugOpt "actionContentParser" $ M.choice [
       M.try ifParser
     , M.try elseParser
     , M.try rangeParser
@@ -152,17 +154,17 @@ actionContentParser = oDbg "actionContentParser" $ M.choice [
     , M.try assignmentParser
     , M.try returnParser
     , M.try endParser
-    , oDbg "exprParser" exprParser
+    , debugOpt "exprParser" exprParser
   ]
 
 ifParser :: Parser Action
-ifParser = oDbg "ifParser" $ do
-    oDbg "ifParser.if" $ symbol "if"
-    IfS <$> oDbg "ifParser.term" term
+ifParser = debugOpt "ifParser" $ do
+    debugOpt "ifParser.if" $ symbol "if"
+    IfS <$> debugOpt "ifParser.term" term
 
 
 elseParser :: Parser Action
-elseParser = oDbg "elseParser" $ do
+elseParser = debugOpt "elseParser" $ do
   symbol "else"
   rezA <- M.optional $ do
     kind <- M.choice [
@@ -177,14 +179,14 @@ elseParser = oDbg "elseParser" $ do
 
 
 rangeParser :: Parser Action
-rangeParser = oDbg "rangeParser" $ do
+rangeParser = debugOpt "rangeParser" $ do
   symbol "range"
   vars <- M.optional rangeVarsParser
   RangeS vars <$> term
 
 
 rangeVarsParser :: Parser RangeVars
-rangeVarsParser = oDbg "rangeVarsParser" $ do
+rangeVarsParser = debugOpt "rangeVarsParser" $ do
   var1 <- variableParser
   var2 <- M.optional (symbol "," *> variableParser)
   symbol ":="
@@ -192,7 +194,7 @@ rangeVarsParser = oDbg "rangeVarsParser" $ do
 
 
 assignmentParser :: Parser Action
-assignmentParser = oDbg "assignmentParser" $ do
+assignmentParser = debugOpt "assignmentParser" $ do
     var <- variableParser
     skipper
     isDef <- M.optional $ M.char (Bi.c2w ':')
@@ -202,7 +204,7 @@ assignmentParser = oDbg "assignmentParser" $ do
 
 
 variableParser :: Parser Variable
-variableParser = oDbg "variableParser" $ do
+variableParser = debugOpt "variableParser" $ do
     M.char (Bi.c2w '$')
     Variable LocalK <$> identifier
 
@@ -220,7 +222,7 @@ defineParser = do
 
 
 blockParser :: Parser Action
-blockParser = oDbg "variableOrMethodParser" $ do
+blockParser = debugOpt "variableOrMethodParser" $ do
   symbol "block"
   BlockS <$> quotedString <*> term
 
@@ -232,7 +234,7 @@ templateIncludeParser = do
 
 
 partialParser :: Parser Action
-partialParser = oDbg "partialParser" $ do
+partialParser = debugOpt "partialParser" $ do
   symbol "partial"
   PartialS <$> quotedString <*> term
 
@@ -250,38 +252,38 @@ endParser = do
 
 
 exprParser :: Parser Action
-exprParser = oDbg "exprParser" $ ExprS <$> term
+exprParser = debugOpt "exprParser" $ ExprS <$> term
 
 
 term :: Parser Expression
-term = oDbg "term" $ M.choice [
-    oDbg "term.pipeline" $ M.try pipelineParser
-    , oDbg "term.restricted" restrictedTerm
-    -- , oDbg "term.variableOrMethod" $ M.try variableOrMethodParser
-    -- , oDbg "term.functionCall" $ M.try functionCallParser
-    -- , oDbg "term.literal" literalParser
+term = debugOpt "term" $ M.choice [
+    debugOpt "term.pipeline" $ M.try pipelineParser
+    , debugOpt "term.restricted" restrictedTerm
+    -- , debugOpt "term.variableOrMethod" $ M.try variableOrMethodParser
+    -- , debugOpt "term.functionCall" $ M.try functionCallParser
+    -- , debugOpt "term.literal" literalParser
   ]
 
 
 restrictedTerm :: Parser Expression
-restrictedTerm = oDbg "restrictedTerm" $ M.choice [
-      oDbg "restrictedTerm.parens" $ parens term
-    , oDbg "restrictedTerm.functionCall" $ M.try functionCallParser
-    , oDbg "restrictedTerm.variableOrMethod" $ M.try variableOrMethodParser
-    , oDbg "restrictedTerm.literal" literalParser
+restrictedTerm = debugOpt "restrictedTerm" $ M.choice [
+      debugOpt "restrictedTerm.parens" $ parens term
+    , debugOpt "restrictedTerm.functionCall" $ M.try functionCallParser
+    , debugOpt "restrictedTerm.variableOrMethod" $ M.try variableOrMethodParser
+    , debugOpt "restrictedTerm.literal" literalParser
   ]
 
 inFunctionArg :: Parser Expression
-inFunctionArg = oDbg "inFunctionArg" $ M.choice [
-      oDbg "inFunctionArg.parens" $ parens term
-    , oDbg "inFunctionArg.variableOrMethod" nonAssocVarOrMethodParser
-    , oDbg "nonFunctionTerm.literal" literalParser
+inFunctionArg = debugOpt "inFunctionArg" $ M.choice [
+      debugOpt "inFunctionArg.parens" $ parens term
+    , debugOpt "inFunctionArg.variableOrMethod" nonAssocVarOrMethodParser
+    , debugOpt "nonFunctionTerm.literal" literalParser
   ]
 
 
 variableOrMethodParser :: Parser Expression
 variableOrMethodParser =
-  oDbg "variableOrMethodParser" $ M.choice [
+  debugOpt "variableOrMethodParser" $ M.choice [
       M.try methodParser
       , M.try currentContextParser
       , M.try localVariableParser
@@ -291,7 +293,7 @@ variableOrMethodParser =
 
 nonAssocVarOrMethodParser :: Parser Expression
 nonAssocVarOrMethodParser =
-  oDbg "nonAssocVarOrMethodParser" $ M.choice [
+  debugOpt "nonAssocVarOrMethodParser" $ M.choice [
       M.try noArgMethodParser
       , M.try currentContextParser
       , M.try localVariableParser
@@ -300,14 +302,14 @@ nonAssocVarOrMethodParser =
 
 
 currentContextParser :: Parser Expression
-currentContextParser = oDbg "currentContextParser" $ do
+currentContextParser = debugOpt "currentContextParser" $ do
   skipper
   M.char (Bi.c2w '.')
   M.space1
   pure ExprCurrentContext
 
 parentContextParser :: Parser Expression
-parentContextParser = oDbg "parentContextParser" $ do
+parentContextParser = debugOpt "parentContextParser" $ do
   skipper
   M.char (Bi.c2w '.')
   M.char (Bi.c2w '.')
@@ -316,13 +318,13 @@ parentContextParser = oDbg "parentContextParser" $ do
 
 
 localVariableParser :: Parser Expression
-localVariableParser = oDbg "localVariableParser" $ do
+localVariableParser = debugOpt "localVariableParser" $ do
   M.char (Bi.c2w '$')
   ExprVariable . Variable LocalK <$> identifier
 
 
 methodParser :: Parser Expression
-methodParser = oDbg "methodParser" $ do
+methodParser = debugOpt "methodParser" $ do
   isGlobal <- M.optional $ M.char (Bi.c2w '$')
   fields <- M.some (symbol "." *> identifier)
   args <- M.many restrictedTerm
@@ -332,7 +334,7 @@ methodParser = oDbg "methodParser" $ do
 
 
 noArgMethodParser :: Parser Expression
-noArgMethodParser = oDbg "noArgMethodParser" $ do
+noArgMethodParser = debugOpt "noArgMethodParser" $ do
   isGlobal <- M.optional $ M.char (Bi.c2w '$')
   fields <- M.some (symbol "." *> identifier)
   let
@@ -341,49 +343,49 @@ noArgMethodParser = oDbg "noArgMethodParser" $ do
 
 
 literalParser :: Parser Expression
-literalParser = oDbg "literalParser" $ do
+literalParser = debugOpt "literalParser" $ do
   exprInfo <- literal
   skipper
   pure $ ExprLiteral exprInfo
 
 
 literal :: Parser Literal
-literal = oDbg "literal" $ M.choice
+literal = debugOpt "literal" $ M.choice
     [ LitBool True <$ symbol "true"
     , LitBool False <$ symbol "false"
-    , LitNumber True <$> M.try (oDbg "literal.float" float)
-    , LitNumber False . fromInteger <$> oDbg "literal.integer" integer
+    , LitNumber True <$> M.try (debugOpt "literal.float" float)
+    , LitNumber False . fromInteger <$> debugOpt "literal.integer" integer
     , LitString <$> quotedString
     ]
 
 
 functionCallParser :: Parser Expression
-functionCallParser = oDbg "functionCallParser" $ do
-    funcName <- oDbg "functionCallParser.funcName" identifier
-    args <- oDbg "functionCallParser.args" $ M.many inFunctionArg
+functionCallParser = debugOpt "functionCallParser" $ do
+    funcName <- debugOpt "functionCallParser.funcName" identifier
+    args <- debugOpt "functionCallParser.args" $ M.many inFunctionArg
     return $ ExprFunctionCall funcName args
 
 
 pipelineParser :: Parser Expression
-pipelineParser = oDbg "pipelineParser" $ do
-    expr <- oDbg "pipelineParser.expr" restrictedTerm
+pipelineParser = debugOpt "pipelineParser" $ do
+    expr <- debugOpt "pipelineParser.expr" restrictedTerm
     skipper
-    apps <- oDbg "pipelineParser.apps" $
-        M.some (symbol "|" *> oDbg "pipelineParser.apps.functionApplicationParser" closureApplicationParser) -- space *> M.char (Bi.c2w '|') *> M.space
+    apps <- debugOpt "pipelineParser.apps" $
+        M.some (symbol "|" *> debugOpt "pipelineParser.apps.functionApplicationParser" closureApplicationParser) -- space *> M.char (Bi.c2w '|') *> M.space
     pure $ ExprPipeline expr apps
 
 
 closureApplicationParser :: Parser ClosureApplication
-closureApplicationParser = oDbg "closureApplicationParser" $ M.choice [
+closureApplicationParser = debugOpt "closureApplicationParser" $ M.choice [
     ClosureMethodFA <$> methodParser
     , functionApplicationParser
   ]
 
 
 functionApplicationParser :: Parser ClosureApplication
-functionApplicationParser = oDbg "functionApplicationParser" $ do
-    funcName <- oDbg "functionApplicationParser.funcName" identifier
-    args <- oDbg "functionApplicationParser.args" $ M.many restrictedTerm
+functionApplicationParser = debugOpt "functionApplicationParser" $ do
+    funcName <- debugOpt "functionApplicationParser.funcName" identifier
+    args <- debugOpt "functionApplicationParser.args" $ M.many restrictedTerm
     return $ FunctionApplicFA funcName args
 
 

@@ -16,7 +16,7 @@ import System.IO
 import System.IO.Error (tryIOError)
 
 import qualified Cannelle.Assembler.Logic as A
-import Cannelle.Compiler.Types (CompContext (..))
+import Cannelle.Compiler.Types (GenCompContext (..))
 import qualified Cannelle.Compiler.Types as Ct
 import qualified Cannelle.VM.Context as Vc
 
@@ -29,7 +29,8 @@ import qualified Cannelle.Hugo.Parser as P
 import qualified Cannelle.Hugo.CompilerA as C
 import qualified Cannelle.Hugo.CompilerB as C
 import qualified Cannelle.Hugo.CompilerC as C
-
+import Cannelle.Hugo.TemplateConv (hugoFctToTmpl)
+import Cannelle.Hugo.Types (HugoCompileCtxt (..))
 
 parseBString :: Bs.ByteString -> IO (Either String Ft.FileUnit)
 parseBString inString =
@@ -111,7 +112,7 @@ compile rtOpts filePath rStatements =
                     name = Just . encodeUtf8 . pack $ filePath
                   , description = Nothing
                   , constants = ctxB.constantPool
-                  , definitions = V.fromList $ map hugoFctToTmpl ctxB.phaseBFct
+                  , definitions = V.fromList $ map hugoFctToTmpl ctxB.subContext.phaseBFct
                   , routing = V.empty
                   , imports =
                       foldl (\accum cte -> case cte of
@@ -123,27 +124,7 @@ compile rtOpts filePath rStatements =
                             _ -> accum
                         ) V.empty ctxB.constantPool
                 }
-  where
-  hugoCteToTmpl :: Ct.CompConstant -> Ft.ConstantTpl
-  hugoCteToTmpl (Ct.IntC i) = Ft.IntegerP $ fromIntegral i
-  hugoCteToTmpl (Ct.DoubleC d) = Ft.DoubleP d
-  hugoCteToTmpl (Ct.BoolC b) = Ft.BoolP b
-  hugoCteToTmpl (Ct.StringC s) = Ft.StringP s
-  hugoCteToTmpl (Ct.VerbatimC s) = Ft.StringP s
-
-  hugoFctToTmpl :: Ct.CompFunction Ha.FStatement -> Ft.FunctionDefTpl
-  hugoFctToTmpl compFct = Ft.FunctionDefTpl {
-        name = compFct.name
-      , args = V.empty
-      , returnType = Ft.VoidT
-      , bytecode = case A.assemble compFct of
-            Left err -> error err
-            Right ops -> ops
-      -- for debugging.
-      , ops = compFct.opcodes
-      , labels = compFct.labels
-    }
-
+ 
 
 loadFile :: FilePath -> IO Bs.ByteString
 loadFile fn = openFile fn ReadMode >>= Bs.hGetContents

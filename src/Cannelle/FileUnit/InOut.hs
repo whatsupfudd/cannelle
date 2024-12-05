@@ -6,6 +6,7 @@ import qualified Data.Binary.Put as Bp
 import qualified Data.ByteString.Lazy as Bsl
 import qualified Data.ByteString as Bs
 import Data.Int (Int32)
+import Data.List (intercalate)
 import qualified Data.Map as Mp
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
@@ -30,9 +31,19 @@ showFileUnit tmpl = "FileUnit:\n"
   <> "name: " <> show tmpl.name <> "\n"
   <> "description: " <> show tmpl.description <> "\n"
   <> "constants:\n" <> concatMap (\(c, idx) -> show idx <> ": " <> showConstantValue c <> "\n") (zip (V.toList tmpl.constants) [0..]) <> "\n"
-  <> "definitions:\n" <> concatMap showFunctionDef (V.toList tmpl.definitions) <> "\n"
+  <> "definitions:\n" <> concatMap showFunction (V.toList tmpl.definitions) <> "\n"
   <> "routing: " <> show tmpl.routing <> "\n"
   <> "imports: " <> show tmpl.imports <> "\n"
+
+
+showFunction :: FunctionTpl -> String
+showFunction fct =
+  case fct of
+    Concat cm text -> "Concat " <> show cm <> " " <> show (Bs.take 30 text) <> "..."
+    Exec functionDef -> "Exec " <> showFunctionDef functionDef
+    Sequence functions -> "Sequence " <> intercalate "\n" (map showFunction functions)
+    Noop -> "Noop"
+    CloneVerbatim filePath -> "CloneVerbatim " <> show filePath
 
 
 showFunctionDef :: FunctionDefTpl -> String
@@ -142,8 +153,8 @@ getFileUnit = do
             <$> getDefinitionsV1 constants
             <*> getRoutingV1
             <*> getImportsV1
-        _ -> fail "Invalid version number"
-    _ -> fail "Invalid magic number"
+        _ -> fail "@[getFileUnit] Invalid version number"
+    _ -> fail "@[getFileUnit] Invalid magic number"
 
 
 getTemplateHeader :: Bg.Get TplHeader
@@ -264,20 +275,52 @@ putAConstantV1 constant = do
       Bp.putInt32be labelID
 
 
-getDefinitionsV1 :: V.Vector ConstantValue -> Bg.Get (V.Vector FunctionDefTpl)
+getDefinitionsV1 :: V.Vector ConstantValue -> Bg.Get (V.Vector FunctionTpl)
 getDefinitionsV1 constants = Bg.label "getDefinitionsV1" $ do
   nbrDefinitions <- Bg.getInt32be
   V.fromList <$> mapM (const (getAFunctionV1 constants)) [1..nbrDefinitions]
 
 
-putDefinitionsV1 :: V.Vector ConstantValue -> V.Vector FunctionDefTpl -> Bp.Put
+putDefinitionsV1 :: V.Vector ConstantValue -> V.Vector FunctionTpl -> Bp.Put
 putDefinitionsV1 constants definitions = do
   Bp.putInt32be (fromIntegral $ V.length definitions)
   mapM_ (putAFunctionV1 constants) definitions
 
 
-getAFunctionV1 :: V.Vector ConstantValue -> Bg.Get FunctionDefTpl
+getAFunctionV1 :: V.Vector ConstantValue -> Bg.Get FunctionTpl
 getAFunctionV1 constants = Bg.label "getAFunctionV1" $ do
+  kind <- Bg.getWord8
+  case kind of
+    0 -> do
+      comprMode <- getComprLevelV1
+      textRunLn <- Bg.getInt32be
+      textRun <- Bg.getByteString (fromIntegral textRunLn)
+      pure $ Concat comprMode textRun
+    1 -> Exec <$> getAFunctionDefV1 constants
+    2 -> do
+      nbrFcts <- Bg.getInt32be
+      Sequence <$> mapM (const (getAFunctionV1 constants)) [1..nbrFcts]
+    3 -> pure Noop
+    4 -> do
+      filePathLn <- Bg.getInt32be
+      CloneVerbatim . T.unpack . T.decodeUtf8 <$> Bg.getByteString (fromIntegral filePathLn)
+    _ -> fail $ "@[getAFunctionV1] Invalid function kind: " <> show kind
+
+
+getComprLevelV1 :: Bg.Get CompressMode
+getComprLevelV1 = do
+  cprMode <- Bg.getWord16be
+  case cprMode of
+    0 -> pure FlatCM
+    _ -> do
+      case cprMode `mod` 256 of
+        1 -> pure $ GzipCM (fromIntegral cprMode `div` 256)
+        2 -> pure $ BzipCM (fromIntegral cprMode `div` 256)
+        _ -> fail $ "@[getComprLevelV1] Invalid compression mode: " <> show cprMode
+
+
+getAFunctionDefV1 :: V.Vector ConstantValue -> Bg.Get FunctionDefTpl
+getAFunctionDefV1 constants = Bg.label "getAFunctionDefV1" $ do
   nbrLn <- Bg.getInt32be
   name <- Just <$>Bg.getByteString (fromIntegral nbrLn)
   {-
@@ -307,8 +350,31 @@ getAFunctionV1 constants = Bg.label "getAFunctionV1" $ do
     _ -> fail "@[getAFunctionV1] Error in name/return type encoding."
 
 
-putAFunctionV1 :: V.Vector ConstantValue -> FunctionDefTpl -> Bp.Put
-putAFunctionV1 constants function = do
+putAFunctionV1 :: V.Vector ConstantValue -> FunctionTpl -> Bp.Put
+putAFunctionV1 constants fct =
+  case fct of
+    Concat cm text -> do
+      Bp.putWord8 0
+      Bp.putWord16be (case cm of FlatCM -> 0; GzipCM lvl -> fromIntegral lvl * 256 + 1; BzipCM lvl -> fromIntegral lvl * 256 + 2)
+      Bp.putInt32be (fromIntegral $ Bs.length text)
+      Bp.putByteString text
+    Exec functionDef -> do
+      Bp.putWord8 1
+      putAFunctionDefV1 constants functionDef
+    Sequence functions -> do
+      Bp.putWord8 2
+      Bp.putInt32be (fromIntegral $ length functions)
+      mapM_ (putAFunctionV1 constants) functions
+    Noop ->
+      Bp.putWord8 3
+    CloneVerbatim filePath -> do
+      Bp.putWord8 4
+      Bp.putInt32be (fromIntegral $ length filePath)
+      Bp.putByteString (T.encodeUtf8 . T.pack $ filePath)
+
+
+putAFunctionDefV1 :: V.Vector ConstantValue -> FunctionDefTpl -> Bp.Put
+putAFunctionDefV1 constants function = do
   -- Name's length (TODO: refer to the constants vector instead of serializing the string):
   Bp.putInt32be (fromIntegral $ Bs.length function.name)
   Bp.putByteString function.name

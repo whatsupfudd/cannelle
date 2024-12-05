@@ -15,16 +15,19 @@ exec :: Fu.FileUnit -> IO ()
 exec fileUnit = do
   putStrLn "@[exec] starting.\n"
   let
-    fctDefs = V.map (\fctDef ->
-            C.FunctionDef {
-              moduleID = 0
-              , fname = fctDef.name
-              , args = Nothing
-              , returnType = C.FirstOrderSO C.IntTO
-              , heapSize = 32
-              , body = C.ByteCode fctDef.bytecode
-            }
-          ) fileUnit.definitions
+    fctDefs = V.foldl (\accum fctTmpl ->
+          case fctTmpl of
+            Fu.Exec fctDef ->
+                V.snoc accum $ C.FunctionDef {
+                  moduleID = 0
+                  , fname = fctDef.name
+                  , args = Nothing
+                  , returnType = C.FirstOrderSO C.IntTO
+                  , heapSize = 32
+                  , body = C.ByteCode fctDef.bytecode
+                }
+            _ -> accum
+        ) V.empty fileUnit.definitions
     vmModule = C.VMModule {
         functions = fctDefs
       , fctMap = Mp.fromList $ zipWith (\fct idx -> (fct.fname, idx)) (V.toList fctDefs) [0..(fromIntegral $ V.length fctDefs - 1)]
@@ -46,10 +49,12 @@ fuCteToVmCte (Fu.DoubleP d) = C.DoubleCte d
 fuCteToVmCte (Fu.ListP _ ctes) = C.ArrayCte $ V.map fuCteToVmCte ctes
 fuCteToVmCte (Fu.StructP _ ctes) = C.TupleCte $ V.map fuCteToVmCte ctes
 
+
 fakeHugoContext :: C.HeapEntry
 fakeHugoContext = C.StructV0 $ Mp.fromList [
     ("Site", fakeSite)
-    , ("Param", C.ClosureHE 0)
+    , ("Params", fakeParams)
+    , ("Param", C.ClosureHE 5)
     , ("Title", C.StringHE "My Hugo Site")
     , ("Type", C.StringHE "Page")
     , ("Kind", C.StringHE "baseofb")
@@ -61,3 +66,10 @@ fakeSite = C.StructV0 $ Mp.fromList [
     , ("Title", C.StringHE "First Test Site")
     , ("Params", C.StructV0 $ Mp.fromList [ ("themeOptions", C.ArrayHE . V.fromList $ map C.StringHE ["light", "dark"]) ])
   ]
+
+
+fakeParams :: C.HeapEntry
+fakeParams = C.StructV0 $ Mp.fromList [
+    ("white_bg", C.ClosureHE 6)
+  ]
+

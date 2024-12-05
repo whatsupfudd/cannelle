@@ -3,10 +3,11 @@ module Cannelle.Assembler.Logic where
 import Control.Monad.State (State, get, put, modify)
 import Control.Monad (foldM)
 
-import qualified Data.Map as Mp
+import qualified Data.ByteString as Bs
 import Data.Int (Int32)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List as L
+import qualified Data.Map as Mp
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -16,7 +17,7 @@ import qualified Crypto.Hash.MD5 as Cr
 import Cannelle.Common.Error (CompError (..))
 import Cannelle.VM.OpCodes (OpCode (..), PcPtrT (..), opParCount, toInstr)
 import Cannelle.VM.Context (MainText, ConstantValue (..))
-import Cannelle.Compiler.Types (GenCompileResult (..), CompContext (..), CompFunction (..), CompConstant (..), ConstantEntries (..), ConstantMap (..))
+import Cannelle.Compiler.Types (GenCompileResult (..), GenCompContext (..), CompFunction (..), CompConstant (..), ConstantEntries (..), ConstantMap (..))
 
 
 emitOp :: (Show subCtxtT) => OpCode -> GenCompileResult subCtxtT statementT ()
@@ -29,7 +30,7 @@ emitOp instr = do
   pure $ Right ()
 
 
-newLabel :: (Show subCtxtT) => State (CompContext subCtxtT statementT) Int32
+newLabel :: (Show subCtxtT) => State (GenCompContext subCtxtT statementT) Int32
 newLabel = do
   ctx <- get
   let
@@ -65,15 +66,15 @@ setLabelPos labelID = do
           pure $ Right ()
 
 
-addStringConstant :: (Show subCtxtT) => MainText -> State (CompContext subCtxtT statementT) Int32
+addStringConstant :: (Show subCtxtT) => MainText -> State (GenCompContext subCtxtT statementT) Int32
 addStringConstant newConst =
   addTypedConstant (StringC newConst) $ Cr.hash newConst
 
-addVerbatimConstant :: (Show subCtxtT) => MainText -> State (CompContext subCtxtT statementT) Int32
+addVerbatimConstant :: (Show subCtxtT) => MainText -> State (GenCompContext subCtxtT statementT) Int32
 addVerbatimConstant newConst =
   addTypedConstant (VerbatimC newConst) $ Cr.hash newConst
 
-addDoubleConstant :: (Show subCtxtT) => Double -> State (CompContext subCtxtT statementT) Int32
+addDoubleConstant :: (Show subCtxtT) => Double -> State (GenCompContext subCtxtT statementT) Int32
 addDoubleConstant newConst = do
   ctx <- get
   let
@@ -87,7 +88,7 @@ addDoubleConstant newConst = do
       pure cteID
 
 
-addTypedConstant :: (Show subCtxtT) => CompConstant -> MainText -> State (CompContext subCtxtT statementT) Int32
+addTypedConstant :: (Show subCtxtT) => CompConstant -> MainText -> State (GenCompContext subCtxtT statementT) Int32
 addTypedConstant newConst md5Hash = do
     ctx <- get
     let
@@ -100,6 +101,14 @@ addTypedConstant newConst md5Hash = do
         in do
         put ctx { cteEntries = ctx.cteEntries { textConstants = Mp.insert md5Hash (index, newConst) ctx.cteEntries.textConstants } }
         pure index
+
+
+-- TODO: implement the push/pop local variables as heap entries.
+pushLocalVars :: [Bs.ByteString] -> GenCompileResult subCtxtT statementT ()
+pushLocalVars vars = pure $ Right ()
+
+popLocalVars :: GenCompileResult subCtxtT statementT ()
+popLocalVars = pure $ Right ()
 
 
 assemble :: CompFunction statementT -> Either String (V.Vector Int32)
@@ -115,7 +124,7 @@ assemble fct =
             -- Create a tuple if the solveLabel is successful, otherwise return the error:
             ((,) . (<>) accum . V.fromList <$> solveLabel pcCounter opCode i32Labels) <*> Right newPcCounter
           else
-                Right $ (accum <> V.fromList (toInstr opCode), newPcCounter)
+                Right (accum <> V.fromList (toInstr opCode), newPcCounter)
         ) (V.empty, 0) fct.opcodes
   where
   isLabeledCode :: OpCode -> Bool
@@ -167,6 +176,37 @@ derefLabels opCodes symbLabels =
         case eiNewBytePos of
           Left err -> Left err
           Right newBytePos -> Right ((label, fromIntegral newBytePos) : accum, newBytePos, curOpCount + sLength)
+
+
+pushIterLabels :: (Show subCtxtT) => (Int32, Int32) -> GenCompileResult subCtxtT statementT ()
+pushIterLabels iterLabels = do
+  ctx <- get
+  let
+    curFct :| tailFcts = ctx.curFctDef
+    newFctDef = curFct { iterLabels = iterLabels : curFct.iterLabels }
+  put ctx { curFctDef = newFctDef :| tailFcts }
+  pure $ Right ()
+
+
+popIterLabels :: (Show subCtxtT) => GenCompileResult subCtxtT statementT ()
+popIterLabels = do
+  ctx <- get
+  let
+    curFct :| tailFcts = ctx.curFctDef
+    newFctDef = curFct { iterLabels = tail curFct.iterLabels }
+  put ctx { curFctDef = newFctDef :| tailFcts }
+  pure $ Right ()
+
+
+getIterLabels :: (Show subCtxtT) => State (GenCompContext subCtxtT statementT) (Maybe (Int32, Int32))
+getIterLabels = do
+  ctx <- get
+  let
+    curFct :| tailFcts = ctx.curFctDef
+  case curFct.iterLabels of
+    [] -> pure Nothing
+    h : _ -> pure $ Just h
+
 
 
 compCteToFUnit :: CompConstant -> ConstantValue

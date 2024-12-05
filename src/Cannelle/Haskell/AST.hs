@@ -1,18 +1,61 @@
 module Cannelle.Haskell.AST where
 
 import Data.ByteString (ByteString)
-import GHC.Word (Word8)
-import Data.Text (Text)
+import Data.Int (Int32)
 import Data.List.NonEmpty (NonEmpty)
+import Data.Text (Text)
+import Data.Word (Word8)
 
 
-data StatementTl =
-  SeqST [ StatementTl ]
-  | ElseIfShortST Bool ExpressionTl (Maybe [ByteString])   -- @] else @[ .. @]
-  | BlockEndST
-  | IfElseNilSS ExpressionTl (Maybe [ByteString])     -- @? <bool expr> @[ (args) ... @]
+-- Processed Statements:
+data StatementBtl =
+  -- TODO: figure out why a block would have some chldren.
+  BlockBT [ StatementBtl ] [ StatementBtl ]
+  | IfBT ExpressionBtl StatementBtl (Maybe StatementBtl)
+  | ImportBT Bool IdentBT (Maybe IdentBT) [ Int32 ]
+  | BindOneBT IdentWithParam ExpressionBtl
+  | LetBT [ (IdentWithParam, ExpressionBtl) ] ExpressionBtl
+  | ExpressionBT ExpressionBtl
+  | VerbatimBT Int32
+  -- TODO: remove once the raw statement list-to-tree reorg is done.
+  | NoOpBT
+  deriving Show
+
+
+-- Processed Expressions:
+data ExpressionBtl =
+  LiteralEB LitValueBtl
+  | ParenEB ExpressionBtl
+  | ArrayEB [ ExpressionBtl ]
+  | UnaryEB UnaryOp ExpressionBtl
+  | BinOpEB BinaryOp ExpressionBtl ExpressionBtl
+  | ReductionEB IdentBT [ ExpressionBtl ]
+  deriving Show
+
+
+-- Processed Literals:
+data LitValueBtl =
+  NumeralVB Int
+  | BoolVB Bool
+  | CharVB Word8
+  | StringVB Int32
+  | TupleVB [ LitValueBtl ]
+  | ArrayVB [ LitValueBtl ]
+  deriving Show
+
+type IdentBT = [ Int32 ]
+
+-- Raw statements:
+data RawStatement =
+  SeqST [ RawStatement ]
+  | ElseIfThenST Bool ExpressionTl (Maybe [ByteString])   -- *DEPRECATED* @] else if <bool expr> @[ [arg+]
+  | IfShortST ExpressionTl (Maybe [ByteString])           -- @? <bool expr> @[ [arg+]
+  | IfST ExpressionTl (Maybe [ByteString])                -- if <bool expr> @[ [arg+]
+  | ElseST                                                -- @] else @[ [arg+]
+  | ElseIfST ExpressionTl (Maybe [ByteString])            -- @] else if <bool expr> @[ [arg+]
+  | BlockEndST                                            -- @]
   | ImportST Bool QualifiedIdent (Maybe QualifiedIdent) [ ByteString ]
-  | BindOneST IdentWithParam ExpressionTl        -- identWithParam = <expression>
+  | BindOneST IdentWithParam ExpressionTl            -- identWithParam = <expression>
   | LetST [ (IdentWithParam, ExpressionTl) ] ExpressionTl  -- let [ identWithParam = <expression> ] in <expression>
   | ExpressionST ExpressionTl
   deriving Show
@@ -64,7 +107,7 @@ type IdentWithParam = (QualifiedIdent, [ QualifiedIdent ])
 
 data BlockAst =
   VerbatimBlock ByteString
-  | LogicBlock StatementTl
+  | LogicBlock RawStatement
   deriving Show
 
 data NodeAst =
@@ -73,7 +116,7 @@ data NodeAst =
   deriving Show
 
 data StmtAst = StmtAst {
-      statement :: StatementTl
+      statement :: RawStatement
       , children :: [NodeAst]
     }
   deriving Show

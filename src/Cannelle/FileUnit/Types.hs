@@ -23,7 +23,7 @@ data FileUnit = FileUnit {
   name :: Maybe MainText
   , description :: Maybe MainText
   , constants :: V.Vector ConstantValue
-  , definitions :: V.Vector FunctionDefTpl
+  , definitions :: V.Vector FunctionTpl
   , routing :: V.Vector RouteTpl
   , imports :: V.Vector ImportTpl
   }
@@ -99,13 +99,19 @@ data FunctionDefTpl = FunctionDefTpl {
 
 {- Logic: move to the Generator section? -}
 data FunctionTpl =
-  Concat MainText
-  | Exec VMModule
+  Concat CompressMode MainText
+  | Exec FunctionDefTpl
   | Sequence [ FunctionTpl ]
   | Noop
   | CloneVerbatim FilePath
   deriving Show
 
+
+data CompressMode =
+  FlatCM
+  | GzipCM Int
+  | BzipCM Int
+  deriving Show
 
 data NameBinding = NameBinding {
     name :: MainText

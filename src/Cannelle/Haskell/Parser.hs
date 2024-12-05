@@ -44,8 +44,9 @@ isReservedWord word =
     _ -> False
 
 
-oDbg str p =
-  if False then MD.dbg str p else p
+oDbg :: (MD.MonadParsecDbg e s m, Show a) => String -> m a -> m a
+oDbg label parser =
+  if False then MD.dbg label parser else parser
 
 
 {- TODO: when megaparsec logic is stable, change this from IO to pure (IO is for debugging with runTest...). -}
@@ -97,13 +98,13 @@ astBlocksToTree aBlocks =
           (updTop, stack, result)
         LogicBlock stmtFd ->
           case stmtFd of
-            IfElseNilSS cond args ->
+            IfShortST cond args ->
               let
                 newRoot = AstLogic $ StmtAst stmtFd []
               in
               (newRoot, topStack : stack, result)
 
-            ElseIfShortST isElse cond args ->
+            ElseIfThenST isElse cond args ->
               let
                 newRoot = AstLogic $ StmtAst stmtFd []
                 (ncTop, ncStack, ncResult) =
@@ -184,7 +185,7 @@ parseVerbatimBlock :: BS.ByteString -> Either CompError BlockAst
 parseVerbatimBlock vBlock = Right $ VerbatimBlock vBlock
 
 
-run :: String -> BS.ByteString -> Either (M.ParseErrorBundle BS.ByteString Void) StatementTl
+run :: String -> BS.ByteString -> Either (M.ParseErrorBundle BS.ByteString Void) RawStatement
 run = M.parse tmplStmt
 
 runTest :: BS.ByteString -> IO ()
@@ -192,11 +193,11 @@ runTest = M.parseTest tmplStmt
 
 
 {- Top-level parsers: -}
-tmplStmt :: Parser StatementTl
+tmplStmt :: Parser RawStatement
 tmplStmt = curlies stmtSequence <|> stmtSequence
 
 
-stmtSequence :: Parser StatementTl
+stmtSequence :: Parser RawStatement
 stmtSequence = do
   stmts <- singleStmt `M.sepBy1` endOfStmt
   pure $ case stmts of
@@ -205,18 +206,18 @@ stmtSequence = do
 
 
 {- Statement parsers: -}
-singleStmt :: Parser StatementTl
+singleStmt :: Parser RawStatement
 singleStmt =
   oDbg "stmt" $ asum [
       oDbg "bind-stmt" $ M.try bindStmt      -- <qual-ident> = <expr>
       , oDbg "val-stmt" expressionStmt     -- <expr>
       , oDbg "short-stmt" shortStmt     -- @? <expr> @[
       , oDbg "blck-stmt" blockEnd      -- @]
-      , oDbg "elif-stmt" elseIfStmt    -- else if <expr> @[
+      , oDbg "elif-stmt" elseIfStmt    -- [else] if <expr> @[
       , oDbg "imp-stmt" importStmt    -- import [qualified] <qual-ident> [ as <alias> ]
     ]
 
-bindStmt :: Parser StatementTl
+bindStmt :: Parser RawStatement
 bindStmt = do
   a <- oDbg "bind-ident" qualifiedIdent
   b <- oDbg "bind-args" $ many qualifiedIdent
@@ -224,41 +225,55 @@ bindStmt = do
   BindOneST (a, b) <$> expressionFd
 
 
-expressionStmt :: Parser StatementTl
+expressionStmt :: Parser RawStatement
 expressionStmt = ExpressionST <$> expressionFd
 
 
-elseIfStmt :: Parser StatementTl
+elseIfStmt :: Parser RawStatement
 elseIfStmt = do
-  a <- optional $ pReservedWord "else"
+  -- a <- optional $ pReservedWord "else"
   pReservedWord "if"
   cond <- expressionFd
   symbol "@["
   args <- optional (symbol "\\" *> some identifier)
-  pure $ ElseIfShortST (isJust a) cond args
+  pure $ IfST cond args
 
 
-shortStmt :: Parser StatementTl
+shortStmt :: Parser RawStatement
 shortStmt =
-  ifElseNilSS
+  ifSS
 
 
-ifElseNilSS :: Parser StatementTl
-ifElseNilSS = do
+ifSS :: Parser RawStatement
+ifSS = do
   pReservedWord "@?"
   cond <- expressionFd
   symbol "@["
   args <- optional (symbol "\\" *> some identifier)
-  pure $ IfElseNilSS cond args
+  pure $ IfShortST cond args
 
 
-blockEnd :: Parser StatementTl
+blockEnd :: Parser RawStatement
 blockEnd = do
   symbol "@]"
-  pure BlockEndST
+  mbElse <- optional $ do
+    pReservedWord "else"
+    mbIf <- optional $ do
+      pReservedWord "if"
+      expressionFd
+    symbol "@["
+    args <- case mbIf of
+      Nothing -> pure Nothing
+      Just _ -> optional (symbol "\\" *> some identifier)
+    case mbIf of
+      Nothing -> pure ElseST
+      Just cond -> pure $ ElseIfST cond args
+  case mbElse of
+    Nothing -> pure BlockEndST
+    Just elseStmt -> pure elseStmt
 
 
-importStmt :: Parser StatementTl
+importStmt :: Parser RawStatement
 importStmt = do
   pReservedWord "import"
   a <- optional $ pReservedWord "qualified"

@@ -68,6 +68,19 @@ jumpTrue context frame opWithArgs =
     pure $ Right (context, frame, ContinueVO)
 
 
+jumpFalse :: OpImpl
+jumpFalse context frame opWithArgs =
+  -- jump to immediate value if false flag is set.
+  if frame.flags == FalseFlag then
+    case opWithArgs V.!? 1 of
+      Nothing ->
+        pure . Left . MissingArgForOpcode $ makeOpCode opWithArgs
+      Just newPC ->
+        pure $ Right (context, frame { pc = frame.pc + fromIntegral newPC }, ContinueVO)
+  else
+    pure $ Right (context, frame, ContinueVO)
+
+
 jumpAlways :: OpImpl
 jumpAlways context frame opWithArgs =
   -- jump to immediate value.
@@ -408,7 +421,7 @@ heapStore context frameA opWithArgs =
 
 callMethod :: OpImpl
 callMethod context frame opWithArgs =
-  -- call method with arity from stack.
+  -- TODO: properly call method with arity from stack.
   case opWithArgs V.!? 1 of
     Nothing ->
       pure . Left . MissingArgForOpcode $ makeOpCode opWithArgs
@@ -416,12 +429,21 @@ callMethod context frame opWithArgs =
       if nbrArgs == 0 then
         case S.pop frame of
           Left (StackError aMsg) -> pure . Left $ StackError ("[@callMethod] stack err: " <> aMsg)
-          Right (newFrame, (aKind, aValue)) ->
+          Right (newFrame, (aKind, aValue)) -> do
             case aKind of
               HeapRefSV ->
                 pure $ Right (context, S.push newFrame (aKind, aValue), ContinueVO)
-              GlobalHeapRefSV ->
-                pure $ Right (context, S.push newFrame (aKind, aValue), ContinueVO)
+              GlobalHeapRefSV -> do
+                putStrLn $ "@[op:callMethod] faking method call: " <> show (aKind, aValue)
+                case H.getFromHeap context aValue of
+                  Just aHeapValue -> case aHeapValue of
+                    ClosureHE aFctID ->
+                      -- TODO: find the function in the context.
+                      case aFctID of
+                        6 -> pure $ Right (context, S.push newFrame (BoolSV, 0), ContinueVO)
+                        _ -> pure . Left $ StackError ("[@callMethod] GlobalHeapRefSV err, no function at " <> show aFctID <> ".")
+                    _ -> pure . Left $ StackError ("[@callMethod] GlobalHeapRefSV err, got unexpected value: " <> show aHeapValue <> ".")
+                  Nothing -> pure . Left $ StackError ("@[op:callMethod] no heap value at " <> show aValue)
               _ ->
                 pure . Left $ StackError ("[@callMethod] stack err, got kind: " <> show aKind <> ".")
       else
@@ -435,20 +457,20 @@ callMethod context frame opWithArgs =
             case args of
               Left err -> pure $ Left err
               Right (newFrame, argValues) -> do
-                putStrLn $ "@[callMethod] args: " <> show argValues
+                putStrLn $ "@[op:callMethod] faking method call with args: " <> show argValues
+                -- TODO: find the function in the context.
                 case recKind of
                   GlobalHeapRefSV ->
-                    let
-                      receiver = context.tmpGlobalHeap V.! fromIntegral recValue
-                    in
-                    case receiver of
-                      ClosureHE aFctID ->
-                        let
-                          (nContext, newValue) = H.addHeapEntry context (StringHE "test-string")
-                        in
-                        pure $ Right (nContext, S.push recFrame (GlobalHeapRefSV, newValue), ContinueVO)
-                      _ ->
-                        pure . Left $ StackError ("[@callMethod] GlobalHeapRefSV err, got unexpected value: " <> show receiver <> ".")
+                    case H.getFromHeap context (fromIntegral recValue) of
+                      Just aHeapValue -> case aHeapValue of
+                        ClosureHE aFctID ->
+                          let
+                            (nContext, newValue) = H.addHeapEntry context (StringHE "test-string")
+                          in
+                          pure $ Right (nContext, S.push recFrame (GlobalHeapRefSV, newValue), ContinueVO)
+                        _ ->
+                          pure . Left . StackError $ "[@callMethod] GlobalHeapRefSV err, got unexpected value: " <> show aHeapValue <> "."
+                      _ -> pure . Left . StackError $ "@[op:callMethod] no heap value at " <> show recValue
                   _ ->
                     pure . Left $ StackError ("[@callMethod] stack err, got kind: " <> show recKind <> ".")
 

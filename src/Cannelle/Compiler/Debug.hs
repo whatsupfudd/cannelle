@@ -9,7 +9,7 @@ import Cannelle.VM.OpCodes (showOpcode)
 import Cannelle.Compiler.Types
 
 
-showCompContext :: (Show subCtxtT) => CompContext subCtxtT statementT -> String
+showCompContext :: (Show subCtxtT) => GenCompContext subCtxtT statementT -> String
 showCompContext ctx ="CompContext:\n  constants:" 
   <> concatMap (\(cte, idx) -> "\n    " <> show idx <> ": " <> show cte) (L.sortOn fst $ Mp.elems ctx.cteEntries.textConstants) <> "\n"
   <> "  functions:" <> concatMap (\(fct, idx) -> "\n    " <> show idx <> ": " <> show fct) (Mp.elems ctx.fctDefs) <> "\n"
@@ -50,7 +50,7 @@ showOpcode revLabels addr op =
 -}
 
 
-instance (Show subCtxtT) => Show (CompContext subCtxtT statementT) where
+instance Show subCtxtT => Show (GenCompContext subCtxtT statementT) where
   show c = "CompContext {\n    constant pool = ["
       <> concatMap (\cte -> "\n      , " <> show cte) (L.sortOn fst $ Mp.elems c.cteEntries.textConstants)
       <> "\n] , functions = [" <> concatMap (\c -> "\n      , " <> show c) c.fctDefs

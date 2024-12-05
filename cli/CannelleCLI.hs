@@ -172,14 +172,14 @@ runTemplog tplSrc dataSrc = do
       rezA <- Tp.parse fn
       case rezA of
         Left err -> pure $ Left (show err)
-        Right fileTempl -> do
-          putStrLn $ "@[runTemplog] fileTempl:\n" <> show fileTempl
-          pure $ Right fileTempl
+        Right fileUnit -> do
+          putStrLn $ "@[runTemplog] fileUnit:\n" <> Fio.showFileUnit fileUnit
+          pure $ Right fileUnit
     TemplateFromStdin ->
       pure . Left $ "@[runTemplog] TemplateFromStdin not supported yet."
   case rezA of
     Left err -> putStrLn err
-    Right fileTempl -> pure ()
+    Right fileUnit -> pure ()
 
 
 runTsx :: Int -> TemplateSource -> DataSource -> IO ()

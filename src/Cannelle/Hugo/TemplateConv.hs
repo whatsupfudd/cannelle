@@ -17,14 +17,14 @@ hugoCteToTmpl (Ht.BoolC b) = Fu.BoolP b
 hugoCteToTmpl (Ht.StringC s) = Fu.StringP s
 hugoCteToTmpl (Ht.VerbatimC s) = Fu.StringP s
 
-hugoFctToTmpl :: Ht.CompFunction FStatement -> Fu.FunctionDefTpl
-hugoFctToTmpl compFct = Fu.FunctionDefTpl {
+hugoFctToTmpl :: Ht.CompFunction FStatement -> Fu.FunctionTpl
+hugoFctToTmpl compFct = Fu.Exec $ Fu.FunctionDefTpl {
       name = compFct.name
     , args = V.empty
     , returnType = Fu.VoidT
     , bytecode = case As.assemble compFct of
           Left err -> error err
           Right ops -> ops
-    , ops = V.empty
-    , labels = Mp.empty
+    , ops = compFct.opcodes
+    , labels = compFct.labels
   }

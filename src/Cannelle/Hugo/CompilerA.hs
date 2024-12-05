@@ -23,10 +23,13 @@ import Cannelle.Common.Error (CompError (..), concatErrors, splitResults)
 -- import Cannelle.VM.OpCodes
 import Cannelle.VM.Context (MainText)
 import qualified Cannelle.Assembler.Logic as A
-import qualified Cannelle.Hugo.NativeLib.Defines as D
-import Cannelle.Compiler.Types (GenCompileResult, CompContext (..), CompFunction (..), CompType (..), SimpleType (..))
+-- The types imported from Cannelle.Compiler.Types are for accessing their interval components.
+import Cannelle.Compiler.Types (GenCompileResult, GenCompContext (..), CompFunction (..), CompType (..), SimpleType (..))
+import Cannelle.Compiler.Context (initCompContext)
+import qualified Cannelle.Compiler.Functions as Cf
 import Cannelle.Compiler.Debug (showCompContext)
 
+import qualified Cannelle.Hugo.NativeLib.Defines as D
 import qualified Cannelle.Hugo.Common as C
 import Cannelle.Hugo.AST
 import Cannelle.Hugo.Types
@@ -39,7 +42,7 @@ fakePos :: Position
 fakePos = Position (LineColumn 0 0) (LineColumn 0 0)
 
 
-addStmt :: FStatementCore -> State FullCompContext (Either CompError FStatement)
+addStmt :: FStatementCore -> State CompContext (Either CompError FStatement)
 addStmt core = do
   ctx <- get
   let
@@ -48,7 +51,7 @@ addStmt core = do
   pure $ Right newStmt
 
 
-addExpr :: FExpressionCore -> State FullCompContext (Either CompError FExpression)
+addExpr :: FExpressionCore -> State CompContext (Either CompError FExpression)
 addExpr expr = do
   ctx <- get
   let
@@ -57,7 +60,7 @@ addExpr expr = do
   pure $ Right newExpr
 
 
-addLiteral :: Literal -> State FullCompContext (Either CompError FExpression)
+addLiteral :: Literal -> State CompContext (Either CompError FExpression)
 addLiteral literal = do
   (fLiteral, exprType) <- case literal of
       LitString str -> do
@@ -82,24 +85,25 @@ addLiteral literal = do
 initHugoCompileCtxt :: HugoCompileCtxt
 initHugoCompileCtxt = HugoCompileCtxt {
   internalTemplates = Mp.empty
+  , phaseBFct = []
   , blocks = Mp.empty
 }
 
 
-showHugoCtxt :: FullCompContext -> String
+showHugoCtxt :: CompContext -> String
 showHugoCtxt = showCompContext
 
 
 -- TODO: implement.
-registerBlock :: MainText -> State FullCompContext Int32
+registerBlock :: MainText -> State CompContext Int32
 registerBlock label = pure 0
 
 -- TODO: implement.
-getInternalTemplate :: MainText -> State FullCompContext Int32
+getInternalTemplate :: MainText -> State CompContext Int32
 getInternalTemplate label = pure 0
 
 
-getExternalTemplate :: MainText -> State FullCompContext Int32
+getExternalTemplate :: MainText -> State CompContext Int32
 getExternalTemplate label = do
   labelID <- A.addStringConstant label
   ctx <- get
@@ -114,17 +118,17 @@ getExternalTemplate label = do
 {- TODO: registerWithContext creates a heap position to store the context at h[0], then pushes the context in the expr to h[0], and then reverts the value from h[p] back to h[0] at the end of the with statement.
 -}
 
-registerWithContext :: TypeInfo -> State FullCompContext Int32
+registerWithContext :: TypeInfo -> State CompContext Int32
 registerWithContext varType = pure 1
 
 
 -- *** Raw AST to resolved AST *** ---
 
-compPhaseA :: MainText -> [RawStatement] -> Either CompError (FullCompContext, [FStatement])
+compPhaseA :: MainText -> [RawStatement] -> Either CompError (CompContext, [FStatement])
 compPhaseA funcName stmts =
   -- TODO: find out how to detect errors and pass on to caller.
   let
-    newCtx = C.initCompContext funcName initHugoCompileCtxt D.impModules D.impFunctions
+    newCtx = initCompContext funcName initHugoCompileCtxt D.impModules D.impFunctions
     (rezA, finalState) = runState (mapM compileRaw stmts) newCtx
   in
   case splitResults rezA of
@@ -234,26 +238,26 @@ compileRaw (WithST expr thenStmt elseStmt) = do
 
 -- Creates a new function.
 compileRaw (DefineST label body) = do
-  eiLabelID <- C.pushFunctionComp label
+  eiLabelID <- Cf.pushFunctionComp label
   case eiLabelID of
     Left err -> pure $ Left err
     Right labelID -> do
       eiBody <- compileRaw body
       case eiBody of
         Left err -> do
-          C.popFunctionVoid
+          Cf.popFunctionVoid
           pure $ Left err
         Right nBody ->
           let
             mbReturnSize = scanForReturns nBody
           in do
-          C.popFunctionComp labelID (fromMaybe 0 mbReturnSize) [nBody]
+          Cf.popFunctionComp labelID (fromMaybe 0 mbReturnSize) [nBody]
           addStmt NoOpFS
 
 
 -- Creates a new function, and then runs it in place.
 compileRaw (BlockST label contextExpr stmt) = do
-  eiFctID <- C.pushFunctionComp label
+  eiFctID <- Cf.pushFunctionComp label
   case eiFctID of
     Left err -> pure $ Left err
     Right fctID -> do
@@ -262,16 +266,16 @@ compileRaw (BlockST label contextExpr stmt) = do
       eiExpr <- compileExprRaw contextExpr
       case eiExpr of
           Left err -> do
-            C.popFunctionVoid
+            Cf.popFunctionVoid
             pure $ Left err
           Right nExpr -> do
             eiStmt <- compileRaw stmt
             case eiStmt of
               Left err -> do
-                C.popFunctionVoid
+                Cf.popFunctionVoid
                 pure $ Left err
               Right nBody -> do
-                C.popFunctionComp fctID 0 [nBody]
+                Cf.popFunctionComp fctID 0 [nBody]
                 addStmt (BlockFS fctID localCtxt nExpr nBody)
 
 
@@ -287,7 +291,7 @@ compileRaw (IncludeST label expr) = do
 compileRaw (PartialST label expr) = do
   templateID <- getExternalTemplate label
   eiExpr <- compileExprRaw expr
-  fctID <- C.getFunctionSlot templateID "$topOfModule"
+  fctID <- Cf.getFunctionSlot templateID "$topOfModule"
   case eiExpr of
     Left err -> pure $ Left err
     Right nExpr -> do
@@ -404,7 +408,7 @@ compileExprRaw (ExprVariable var@(Variable kind label)) = do
       addExpr (VariableEC kind lID)
     LocalMethodK -> do
       -- TODO: understand the difference between MethodK and LocalMethodK.
-      mbGetLocalCtxID <- C.getImportedFunction "hugo.getLocalContext" []
+      mbGetLocalCtxID <- Cf.getImportedFunction "hugo.getLocalContext" []
       case mbGetLocalCtxID of
         Nothing -> pure . Left $ CompError [(0, "Function not found: " <> "hugo.getLocalContext")]
         Just someFcts -> do
@@ -437,7 +441,7 @@ compileExprRaw (ExprMethodAccess fields values) = do
 
 
 compileExprRaw (ExprFunctionCall funcName args) = do
-  functionID <- C.getFunctionSlot 1 funcName
+  functionID <- Cf.getFunctionSlot 1 funcName
   rezA <- mapM compileExprRaw args
   case splitResults rezA of
     (Just err, _) -> pure $ Left err
@@ -452,7 +456,7 @@ compileExprRaw (ExprPipeline leftExpr closureAppls) = do
     Right nExpr -> do
       rezB <- mapM (\case
           FunctionApplicFA funcName args -> do
-            functionID <- C.getFunctionSlot 1 funcName
+            functionID <- Cf.getFunctionSlot 1 funcName
             -- TODO: check for errors in rezA.
             rezA <- mapM compileExprRaw args
             case splitResults rezA of

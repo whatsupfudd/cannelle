@@ -19,6 +19,7 @@ implementedOpCodes = [
   (fromEnum NOP, noOp)
   , (fromEnum CMP_BOOL_IMM, cmpBoolImm)
   , (fromEnum $ JUMP_TRUE (I32Pc 0), jumpTrue)
+  , (fromEnum $ JUMP_FALSE (I32Pc 0), jumpFalse)
   , (fromEnum $ JUMP (I32Pc 0), jumpAlways)
   , (fromEnum $ PUSH_INT_IMM 0, pushIntImm)
   , (fromEnum $ PUSH_CONST 0, pushConst)

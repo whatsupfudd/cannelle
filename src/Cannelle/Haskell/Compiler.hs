@@ -5,249 +5,228 @@ module Cannelle.Haskell.Compiler where
 import Control.Monad (foldM, when)
 import Control.Monad.State (State, get, put, runState, modify)
 
-import Data.Int (Int32)
-import Data.Word (Word8)
-import Data.Text (Text, pack)
-import Data.Text.Encoding (encodeUtf8)
 import Data.ByteString (ByteString)
+import Data.Either (partitionEithers)
+import Data.Int (Int32)
 import Data.List (sortBy)
 import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.Vector as Vc
 import qualified Data.Map as Mp
+import Data.Text (Text, pack)
+import Data.Text.Encoding (encodeUtf8)
+import qualified Data.Vector as V
 import qualified Crypto.Hash.MD5 as Cr
 import qualified Data.Text.Encoding as TE
 
-import Cannelle.Common.Error (CompError (..))
+import Cannelle.Common.Error (CompError (..), concatFoundErrors, splitResults)
 import Cannelle.VM.OpCodes (OpCode (..), toInstr, opParCount, PcPtrT (..))
-import Cannelle.VM.Context (MainText, VMModule (..), FunctionDef (..), ConstantValue (..)
-                , ModuledDefinition (..), FunctionCode (..), SecondOrderType (..)
-                , FirstOrderType (..))
+import Cannelle.VM.Context (ConstantValue(..), MainText)
+import qualified Cannelle.Assembler.Logic as A
+import Cannelle.Compiler.Types (GenCompileResult, GenCompContext (..), CompFunction (..), ConstantMap (..), ConstantEntries (..))
+import Cannelle.Compiler.ConstantPool (fusePartA, fusePartB)
+import Cannelle.Compiler.Context (initCompContext)
+import Cannelle.Compiler.Debug
+
+import Cannelle.FileUnit.Types (FileUnit (..), FunctionDefTpl (..))
+import qualified Cannelle.FileUnit.Types as Fu
+
 import Cannelle.Haskell.AST
+import Data.ByteString.Builder.Prim (condB)
 
 
-data ReferenceDetails =
-  UnknownIdent Text
-  | ExternalRef Text
-  | InternalRef Int
+type CompContext = GenCompContext () RawStatement
+-- type GenCompileResult subCtxt statementT result = State (GenCompContext subCtxt statementT) (Either CompError result)
+type RawResult resultT = GenCompileResult () RawStatement resultT
+type CompileResult = GenCompileResult () RawStatement ()
 
 
-data CompContext = CompContext {
-    idents :: Mp.Map Text Int
-    , imports :: [ String ]
-    , constants :: Mp.Map ByteString ConstantValue
-    , constantMap :: Mp.Map ByteString Int32
-    , bindings :: Mp.Map Text FunctionDef
-    , referredIdentifiers :: Mp.Map Text ReferenceDetails
-    , modules :: Mp.Map Text ModuledDefinition
-    , hasFailed :: Maybe CompError
-    , labels :: Mp.Map Int32 Int32
-    , bytecode :: [ OpCode ]
-    , unitCounter :: Int32
-    , unitStack :: [ CompileUnit]
-    -- Shortcut to the all-omnipresent spit function.
-    , spitFunction :: Int32
-  }
+compile :: Bool -> FilePath -> [NodeAst] -> IO (Either CompError FileUnit)
+compile rtOpts filePath nodes =
+  -- putStrLn $ "@[runHugo] statements:"
+  -- Hg.printStatements statements
+  case compPhaseA "$topOfModule" nodes of
+    Left err ->
+      pure . Left $ CompError [(0, "@[compile] compileStatements err: " <> show err)]
+    Right ctxtA -> do
+      putStrLn $ "@[compile] ctxA: " <> show ctxtA
+      let
+        curFct :| restFcts = ctxtA.curFctDef
+        fctDefs = [ tlFctToTmpl curFct ]
+      case fusePartA ctxtA >>= fusePartB of
+        Left errs -> pure $ Left errs
+        Right ctxtB -> do
+          when rtOpts $ do
+            putStrLn $ "@[compile] ctx.fctRefCte: " <> show ctxtB.cteEntries.fctRefCte
+            putStrLn $ "@[compile] ctx.cteMaps.txtCteMap: " <> show ctxtB.cteMaps.txtCteMap
+            putStrLn $ "@[compile] ctx.cteMaps.fctCteMap: " <> show ctxtB.cteMaps.fctCteMap
+            putStrLn $ "@[compile] ctx.cteMaps.fctSlotMap: " <> show ctxtB.cteMaps.fctSlotMap
+          case partitionEithers fctDefs of
+            (errs@(a:_), _) -> pure . Left $ concatFoundErrors errs
+            (_, fctDefsB) -> do
+              pure . Right $ FileUnit {
+                name = Just . encodeUtf8 . pack $ filePath
+              , description = Nothing
+              , constants = ctxtB.constantPool
+              , definitions = V.fromList fctDefsB
+              , routing = V.empty
+              , imports =
+                  foldl (\accum cte -> case cte of
+                        FunctionRefRaw moduleID labelID returnTypeID argTypeID argNameIDs ->
+                          if moduleID > 1 then
+                            V.snoc accum (Fu.ImportTpl False moduleID labelID returnTypeID argTypeID argNameIDs)
+                          else
+                            accum
+                        _ -> accum
+                    ) V.empty ctxtB.constantPool
+              }
 
-data BindDefinition = BindDefinition QualifiedIdent FuddleType
-
-data FuddleType =
-  BoolFT | CharFT | IntFT | FloatFT | DoubleFT | StringFT
-  | ArrayFT FuddleType
-  | TupleFT [ FuddleType ]
-  -- a record with named fields:
-  | StructureFT (Mp.Map Text FuddleType)
-  -- array of parameters, return type:
-  | FunctionFT [ FuddleType ] FuddleType
 
 
-data CompileUnit = CompileUnit {
-    name :: Text
-    , unitID :: Int
-    , arguments :: [ BindDefinition ]
-    , localVars :: [ BindDefinition ]
-    , bcode :: [ OpCode ]
-  }
-
-
-initContext preludeMods =
+compPhaseA :: ByteString -> [NodeAst] -> Either CompError CompContext
+compPhaseA topName nodes =
   let
-    fctName = "$main"
-  in CompContext {
-  idents = Mp.empty
-  , imports = []
-  , constants = Mp.empty
-  , constantMap = Mp.empty
-  , bindings = Mp.fromList [ (TE.decodeUtf8 fctName, initFctDef fctName) ]
-  , referredIdentifiers = Mp.empty
-  , modules = preludeMods
-  , hasFailed = Nothing
-  , labels = Mp.empty
-  , bytecode = []
-  , unitCounter = 0
-  , unitStack = []
-  , spitFunction = 0
-}
-
-initFctDef :: MainText -> FunctionDef
-initFctDef name = FunctionDef {
-  moduleID = 0
-  , fname = name
-  , args = Nothing
-  , returnType = FirstOrderSO StringTO
-  , heapSize = 1
-  , body = ByteCode Vc.empty
-}
-
-type CompileResult = State CompContext ()
-
-{-
-    - Once the AST node tree is created:
-      - resolve all identifiers,
-      - compile the AST node tree:
-        - CloneText: add opcodes to spit the text,
-        - Logic/Stmt:
-          - Seq: compile each statement,
-          - ElseIfShort: compile the condition expr, jmp on false to next stmt, compile the stmt, emit next-stmt label.
-          - BlockEnd: emit next-stmt label.
-          - IfElseNil: compile the condition expr, jmp on false to next stmt, compile the stmt, emit next-stmt label.
-          - Import: skip (already processed before compilation).
-          - BindOne: push the function compilation context, create new context with args, compile the expression
-              , pop the function context, add function to parent context.
-          - Let: compile each expression, add the bindings to the context, compile the last expression.
-          - ExpressionST: compile the expression, emit a reduction op to the spit function.
-        - Logic/Expr:
-          - Literal: add the literal value to the stack.
-          - Paren: compile the expression.
-          - Array: compile each expression, unstack to the array memory location, push the array location to stack.
-            ? How to implement a range expression ?
-          - Unary: compile the expression, emit unary operator (pop arg, compute, push result).
-          - Binary: compile the two expressions and apply the binary operator (pop 2 args, compute, push result).
-          - Reduction: compile the expressions, emit a reduction op to function ID with # of expressions results on stack.
-      - add the VM code to the global context.
-      - consolidate constants, local vars, function definitions.
--}
-
--- TODO: add a parameter for passing the pre-loaded prelude modules.
-{-
-  - result: VMModule, with the bytecode, the constants, the function definitions, the required modules/functions.
--}
-compileAstTree :: NodeAst -> Either CompError VMModule
-compileAstTree nTree =
-  -- putStrLn $ "@[compileAst] ast: " ++ show ast
-  case nTree of
-    AstLogic (StmtAst (SeqST []) children) ->
-      let
-        -- TODO: pass the pre-loaded prelude modules.
-        context = initContext Mp.empty
-        (retValue, rezContext) = runState (compileTree nTree) context
-      in
-      case rezContext.hasFailed of
-        Just err -> Left err
-        Nothing ->
-          let
-            tmpMain = FunctionDef {
-              moduleID = 0
-              , fname = "$topOfModule"
-              , args = Nothing
-              , returnType = FirstOrderSO StringTO
-              , heapSize = 1
-              , body = ByteCode $ Vc.fromList $ concatMap toInstr rezContext.bytecode
-            }
-            keyVals = sortBy (\(ak, av) (bk, bv) -> if av == bv then EQ else if av < bv then LT else GT ) $ Mp.toList rezContext.constantMap
-          in
-          Right $ VMModule {
-              functions = Vc.singleton tmpMain
-              , fctMap = Mp.fromList $ zipWith (\fct idx -> (fct.fname, idx)) [tmpMain] [0..]
-              , constants = Vc.fromList $ map (\(k, v) -> rezContext.constants Mp.! k) keyVals
-              , externModules = modules rezContext
-            }
-    _ -> Left $ CompError [(0, "Unexpected root AST node for compilation.")]
+    compCtxt = initCompContext topName () Mp.empty Mp.empty
+    (compRez, finalState) = runState (mapM genNodeOps nodes) compCtxt
+  in
+  case partitionEithers compRez of
+    (errs@(a:rest), _) -> Left $ concatFoundErrors errs
+    (_, ctxB) -> Right finalState
 
 
-emitOp :: OpCode -> CompileResult
-emitOp instr = modify $ \s -> s { bytecode = s.bytecode <> [instr] }
-
-newLabel :: State CompContext Int32
-newLabel = do
-    s <- get
-    let
-      labelID = fromIntegral $ Mp.size s.labels
-    put s { labels = Mp.insert labelID (fromIntegral $ length s.bytecode) s.labels }
-    return labelID
-
-
-resolveLabel :: Int32 -> CompileResult
-resolveLabel label = do
-  s <- get
-  case Mp.lookup label s.labels of
-    Nothing -> modify $ \s -> s { hasFailed = Just $ CompError [(0, "Label " <> show label <> "not found.") ] }
-    Just aPos -> modify $ \s ->
-      let
-        (before, after) = splitAt (fromIntegral aPos) s.bytecode
-        afterSize = sum . map (\i -> 1 + opParCount i) $ after
-      in
-      s { bytecode = before <> {- [JUMP_ABS $ fromIntegral afterSize] <> -} after }
-
-
-addStringConstant :: ByteString -> State CompContext Int32
-addStringConstant newConst =
-  addTypedConstant (StringCte newConst) $ Cr.hash newConst
-
-addVerbatimConstant :: ByteString -> State CompContext Int32
-addVerbatimConstant newConst =
-  addTypedConstant (VerbatimCte False newConst) $ Cr.hash newConst
-
-
-addTypedConstant :: ConstantValue -> ByteString -> State CompContext Int32
-addTypedConstant newConst md5Hash = do
-    s <- get
-    let
-      existing = Mp.lookup md5Hash s.constants
-    case existing of
-      Just _ ->
-        {- Sanity check on hash map: right now fix if missing entry, but could be worth raising an error instead... -}
-        case Mp.lookup md5Hash s.constantMap of
-          Just index -> pure index
-          Nothing ->
-            let
-              index = fromIntegral $ Mp.size s.constantMap
-            in do
-            put s { constantMap = Mp.insert md5Hash index s.constantMap }
-            pure index
-      Nothing ->
-        let
-          index = fromIntegral $ Mp.size s.constantMap
-        in do
-        put s { constantMap = Mp.insert md5Hash index s.constantMap, constants = Mp.insert md5Hash newConst s.constants }
-        pure index
-
-
-compileTree :: NodeAst -> CompileResult
-compileTree node = do
-  compileNode node
-  emitOp HALT
-
-
-compileNode :: NodeAst -> CompileResult
-compileNode node=
+compileNodeRaw :: NodeAst -> RawResult StatementBtl
+compileNodeRaw node =
   case node of
-    AstLogic (StmtAst stmt children) ->
-      compileStmt stmt children
     CloneText someText -> do
-      s <- get
-      newIndex <- addVerbatimConstant someText
-      emitOp $ PUSH_CONST newIndex
-      emitOp $ REDUCE s.spitFunction 1
-      pure ()
+      txtID <- A.addVerbatimConstant someText
+      pure . Right $ VerbatimBT txtID
+    AstLogic (StmtAst stmt children) -> compileRawStmt stmt children
 
 
-compileStmt :: StatementTl -> [NodeAst] -> CompileResult
-compileStmt ast children =
-  case ast of
+compileRawStmt :: RawStatement -> [NodeAst] -> RawResult StatementBtl
+
+compileRawStmt (SeqST stmts) children = do
+  rezA <- mapM (`compileRawStmt` []) stmts
+  case splitResults rezA of
+    (Just errs, _) -> pure $ Left errs
+    (Nothing, results) -> do
+      rezB <- mapM compileNodeRaw children
+      case splitResults rezB of
+        (Just errs, _) -> pure $ Left errs
+        (Nothing, convChildren) -> pure . Right $ BlockBT results convChildren
+
+
+compileRawStmt (IfST cond lambdaVars) children = do
+  eiCondExpr <- compileRawExpr cond
+  case eiCondExpr of
+    Left err -> pure $ Left err
+    Right condExprBtl -> do
+      subStmts <- mapM compileNodeRaw children
+      case splitResults subStmts of
+        (Just errs, _) -> pure $ Left errs
+        (Nothing, results) ->
+          let
+            thenStmt = case results of
+              [aStmt] -> aStmt
+              _ -> BlockBT results []
+          in
+          pure . Right $ IfBT condExprBtl thenStmt Nothing
+
+
+-- TODO: review the if-short, if and if-else/if-else-if cases once the raw statements are made into a proper tree.
+compileRawStmt (IfShortST cond lambdaVars) children = do
+  compileRawStmt (IfST cond lambdaVars) children
+
+-- TODO: tmp rule, this will disappear once the raw statements list-to-tree phase is done.
+compileRawStmt ElseST children = do
+  pure . Right $ NoOpBT
+
+-- TODO: tmp rule, this needs to be flatten during the raw statements list-to-tree phase.
+compileRawStmt (ElseIfST cond lambdaVars) children = do
+  compileRawStmt (IfST cond lambdaVars) children
+
+-- TODO: tmp rule, this will disappear once the raw statements list-to-tree phase is done.
+compileRawStmt BlockEndST children = do
+  pure . Right $ NoOpBT
+
+-- TODO: implement a proper import.
+compileRawStmt (ImportST isQualified qualIdent mbQualIdents args) children = do
+  pure . Right $ NoOpBT
+
+-- TODO: implement a proper bind-one.
+compileRawStmt (BindOneST (ident, params) expr) children = do
+  pure . Right $ NoOpBT
+
+
+-- TODO: implement a proper bind-many.
+compileRawStmt (LetST bindings expr) children = do
+  pure . Right $ NoOpBT
+
+compileRawStmt (ExpressionST expr) children = do
+  rez <- compileRawExpr expr
+  case rez of
+    Left err -> pure $ Left err
+    Right exprBtl -> pure . Right $ ExpressionBT exprBtl
+
+
+compileRawExpr :: ExpressionTl -> RawResult ExpressionBtl
+
+compileRawExpr (LiteralExpr (BoolValue lit)) =
+  pure . Right $ LiteralEB (BoolVB lit)
+compileRawExpr (LiteralExpr (NumeralValue lit)) =
+  pure . Right $ LiteralEB (NumeralVB lit)
+compileRawExpr (LiteralExpr (CharValue lit)) =
+  pure . Right $ LiteralEB (CharVB lit)
+compileRawExpr (LiteralExpr (StringValue lit)) = do
+  strID <- A.addStringConstant lit
+  pure . Right $ LiteralEB (StringVB strID)
+
+
+compileRawExpr (ParenExpr expr) = do
+  exprBtl <- compileRawExpr expr
+  case exprBtl of
+    Left err -> pure $ Left err
+    Right exprBtl -> pure . Right $ ParenEB exprBtl
+
+
+compileRawExpr (ArrayExpr exprArray) = do
+  rezA <- mapM compileRawExpr exprArray
+  case splitResults rezA of
+    (Just errs, _) -> pure $ Left errs
+    (Nothing, results) -> pure . Right $ ArrayEB results
+
+compileRawExpr (UnaryExpr oper expr) = do
+  exprBtl <- compileRawExpr expr
+  case exprBtl of
+    Left err -> pure $ Left err
+    Right exprBtl -> pure . Right $ UnaryEB oper exprBtl
+
+compileRawExpr (BinOpExpr oper leftArg rightArg) = do
+  leftBtl <- compileRawExpr leftArg
+  rightBtl <- compileRawExpr rightArg
+  case (leftBtl, rightBtl) of
+    (Left err, _) -> pure $ Left err
+    (Right _, Left err) -> pure $ Left err
+    (Right leftBtl, Right rightBtl) -> pure . Right $ BinOpEB oper leftBtl rightBtl
+
+
+genNodeOps :: NodeAst -> CompileResult
+genNodeOps node = do
+  case node of
+    CloneText someText -> do
+      ctxt <- get
+      txtID <- A.addVerbatimConstant someText
+      A.emitOp $ PUSH_CONST txtID
+      A.emitOp $ REDUCE ctxt.spitFctID 1
+    AstLogic (StmtAst stmt children) -> genStmtOps stmt children
+
+
+genStmtOps :: RawStatement -> [NodeAst] -> CompileResult
+genStmtOps stmt children =
+  case stmt of
     SeqST stmts -> do
-      mapM_ (`compileStmt` []) stmts
-      mapM_ compileNode children
-    ElseIfShortST isElse cond args ->
+      mapM_ (`genStmtOps` []) stmts
+      mapM_ genNodeOps children
+      pure $ Right()
+    ElseIfThenST isElse cond args ->
       {- TODO:
         - if isElse, the not-true branch label resolution should lead to this bytecode position,
           the NodeAst parser should have made sure that the previous if is well-formed.
@@ -257,31 +236,42 @@ compileStmt ast children =
         - compile the children,
         - resolve the label for the not-true branch.
       -}
-      if null children then
-        pure ()
-      else do
-        compileExpr cond
-        emitOp CMP_BOOL_IMM
-        emitOp $ JUMP_TRUE (I32Pc 2)
-        nextLabel <- newLabel
-        mapM_ compileNode children
-        resolveLabel nextLabel
-    BlockEndST ->
+      case children of
+        [] -> pure $ Right()
+        _ -> do
+          notThenLabel <- A.newLabel
+          compileExpr cond
+          A.emitOp CMP_BOOL_IMM
+          A.emitOp $ JUMP_TRUE (LabelRef notThenLabel)
+          -- TODO: introduce the args as local variables for the children context.
+          case args of
+            Just someArgs@(a:rest) -> do
+              A.pushLocalVars someArgs
+              mapM_ genNodeOps children
+              A.popLocalVars
+            _ -> do
+              mapM_ genNodeOps children
+              pure $ Right()
+          A.setLabelPos notThenLabel
+          pure $ Right()
+    BlockEndST -> pure $ Right()
       --TODO: error checking on the validity of the block end at this point in the AST.
-      pure ()
-    IfElseNilSS cond args ->
-      if null children then
-        pure ()
-      else do
-        compileExpr cond
-        -- TODO: manage the label system so it can take a type-of-jump and later do the distance resolution using that
-        -- instead of the double-jump approach proposed by Copilot.
-        -- Also take care of args and children compilation block.
-        emitOp CMP_BOOL_IMM
-        emitOp $ JUMP_TRUE (I32Pc 2)    -- move PC over the jump+distance if false, ie execute the block.
-        nextLabel <- newLabel   -- skip the block.
-        mapM_ compileNode children
-        resolveLabel nextLabel  -- resolve the distance and insert the jump instruction at label position.
+    IfShortST cond args ->
+      case children of
+        [] -> pure $ Right()
+        _ -> do
+          notThenLabel <- A.newLabel
+          A.emitOp $ JUMP_TRUE (LabelRef notThenLabel)
+          -- TODO: introduce the args as local variables for the children context.
+          case args of
+            Just someArgs@(a:rest) -> do
+              A.pushLocalVars someArgs
+              mapM_ genNodeOps children
+              A.popLocalVars
+              pure ()
+            _ -> mapM_ genNodeOps children
+          A.setLabelPos notThenLabel
+          pure $ Right()
     BindOneST (ident, params) expr ->
       {- TODO:
         - create a new function context, set the name as ident, check for clash,
@@ -291,123 +281,76 @@ compileStmt ast children =
         - pop the function context from the function stack, add the function to the parent context.
         !! if arity == 0, it's equivalent to a variable definition... handle the same way?
       -}
-      pure ()
+      pure $ Right()
     ExpressionST expr -> do
-      s <- get
       compileExpr expr
-      emitOp $ REDUCE s.spitFunction 1
+      ctxt <- get
+      A.emitOp FORCE_TO_STRING
+      A.emitOp $ REDUCE ctxt.spitFctID 1
+      pure $ Right()
     -- ImportST isQualified qualIdent mbQualIdents: should not happen here, it's used before to build reference for modules in local space.
-    _ -> pure ()
+    _ ->
+      pure . Left $ CompError [(0, "Unexpected statement type in genStmtOps: " <> show stmt)]
 
 
-{- Expressions: -}
 compileExpr :: ExpressionTl -> CompileResult
-compileExpr expr =
-  case expr of
-    LiteralExpr literal -> compileLiteral literal
-    ParenExpr expr -> compileExpr expr
-    ArrayExpr exprArray -> compileExprArray exprArray
-    UnaryExpr oper expr -> compileUniOper oper expr
-    BinOpExpr oper exprA exprB -> compileBinOper oper exprA exprB
-    ReductionExpr qualIdent exprArray -> compileReduction qualIdent exprArray
 
 
-compileLiteral :: LiteralValue -> CompileResult
-compileLiteral lit =
-  case lit of
-    NumeralValue lit -> compileNumeral lit
-    BoolValue lit -> compileBool lit
-    CharValue lit -> compileChar lit
-    StringValue lit -> compileString lit
-    ArrayValue litArray -> compileLitArray litArray
+compileExpr (ParenExpr expr) =
+  compileExpr expr
 
-{- Literals: -}
-compileNumeral :: Int -> CompileResult
-compileNumeral lit = do
-  -- TODO: type analysis to select the right kind of numeral.
-  emitOp $ PUSH_INT_IMM $ fromIntegral lit
-
-compileBool :: Bool -> CompileResult
-compileBool lit =
-  emitOp $ PUSH_BOOL_IMM lit
-
-compileChar :: Word8 -> CompileResult
-compileChar lit =
-  emitOp $ PUSH_INT_IMM $ fromIntegral lit
-
-compileString :: ByteString -> CompileResult
-compileString lit = do
-  strID <- addStringConstant lit
-  emitOp $ PUSH_CONST strID
-
-compileLitArray :: [ LiteralValue ] -> CompileResult
-compileLitArray lit =
-  -- TODO: how to store an array of literals ?
-  pure ()
-
-{- Array: -}
-compileExprArray :: [ ExpressionTl ] -> CompileResult
-compileExprArray exprArray =
+compileExpr (ArrayExpr exprArray) =
   let
     arrayID = 0  -- get new array storage ID.
-  in
+  in do
   mapM_ compileExpr exprArray
   -- TODO: how to store an array of literals ?
   -- push the values to array storage, push the array ID to stack.
+  pure $ Right ()
 
 
-{- Operations: -}
-compileUniOper :: UnaryOp -> ExpressionTl -> CompileResult
-compileUniOper oper exprA = do
-  compileExpr exprA
+compileExpr (UnaryExpr oper expr) = do
+  compileExpr expr
   case oper of
     -- TODO: type analysis to select the right kind of negation.
-    NegateOP -> emitOp INEGATE
-    NotOP -> emitOp BNOT
-    BitNotOP -> emitOp BNOT
+    NegateOP -> A.emitOp INEGATE
+    NotOP -> A.emitOp BNOT
+    BitNotOP -> A.emitOp BNOT
 
-compileBinOper :: BinaryOp -> ExpressionTl -> ExpressionTl -> CompileResult
-compileBinOper oper exprA exprB = do
-  compileExpr exprA
-  compileExpr exprB
+
+compileExpr (BinOpExpr oper leftArg rightArg) = do
+  compileExpr leftArg
+  compileExpr rightArg
   -- TODO: type analysis to select the right kind of bin op.
   case oper of
-    AddOP -> emitOp IADD
-    SubstractOP -> emitOp ISUB
-    MultiplyOP -> emitOp IMUL
-    DivideOP -> emitOp IDIV
-    ModuloOP -> emitOp IMOD
-    BitXorOP -> emitOp BXOR
-    BitOrOP -> emitOp BOR
-    BitShiftLeftOP -> emitOp ISHL
-    BitShiftRightOP -> emitOp ISHR
-    OrOP -> emitOp BOR
-    AndOP -> emitOp BAND
+    AddOP -> A.emitOp IADD
+    SubstractOP -> A.emitOp ISUB
+    MultiplyOP -> A.emitOp IMUL
+    DivideOP -> A.emitOp IDIV
+    ModuloOP -> A.emitOp IMOD
+    BitXorOP -> A.emitOp BXOR
+    BitOrOP -> A.emitOp BOR
+    BitShiftLeftOP -> A.emitOp ISHL
+    BitShiftRightOP -> A.emitOp ISHR
+    OrOP -> A.emitOp BOR
+    AndOP -> A.emitOp BAND
     -- TODO: figure out the right kind of comparison system.
-    EqOP -> emitOp $ CMP_INT 0 0
-    NeOP -> emitOp $ CMP_INT 0 0
-    LtOP -> emitOp $ CMP_INT 0 0
-    LeOP -> emitOp $ CMP_INT 0 0
-    GeOP -> emitOp $ CMP_INT 0 0
-    GtOP -> emitOp $ CMP_INT 0 0
-    ConcatOP -> emitOp ARR_CONCAT
-    CarAddOP -> emitOp ARR_ADD
+    EqOP -> A.emitOp $ CMP_INT 0 0
+    NeOP -> A.emitOp $ CMP_INT 0 0
+    LtOP -> A.emitOp $ CMP_INT 0 0
+    LeOP -> A.emitOp $ CMP_INT 0 0
+    GeOP -> A.emitOp $ CMP_INT 0 0
+    GtOP -> A.emitOp $ CMP_INT 0 0
+    ConcatOP -> A.emitOp ARR_CONCAT
+    CarAddOP -> A.emitOp ARR_ADD
     -- TODO: array ops (concat, car-add).
 
-{- Reduction: an identifier that is the main definition, and additional expressions that are the parameters to apply to the identifier -}
-compileReduction :: QualifiedIdent -> [ ExpressionTl ] -> CompileResult
-compileReduction qualIdent exprArray = do
-  {- TODO:
-  - find the identifier in the context,
-    - if not found, put it in the unresolved list,
-  - compile each expressions, putting the result on the stack,
-  - insert a function call op to the identifier address: it's a pointer to the function list (both identified and unindentified).
-  !! inline functions with arity 0 -> variable access.
-  -}
-  s <- get
+
+compileExpr (ReductionExpr qualIdent exprArray) = do
+  ctxt <- get
   let
     functionID = case qualIdent of
-      "$spit" :| [] -> s.spitFunction
+      "$spit" :| [] -> ctxt.spitFctID
       "C" :| rest ->
         case rest of
           [] -> 1
@@ -419,5 +362,37 @@ compileReduction qualIdent exprArray = do
             "appConfEnvVar" -> 6
       _ -> 1
   mapM_ compileExpr exprArray
-  emitOp $ REDUCE functionID (fromIntegral . length $ exprArray)
+  A.emitOp $ REDUCE functionID (fromIntegral . length $ exprArray)
+
+
+compileExpr (LiteralExpr (NumeralValue lit)) =
+  A.emitOp $ PUSH_INT_IMM $ fromIntegral lit
+
+compileExpr (LiteralExpr (BoolValue lit)) =
+  A.emitOp $ PUSH_BOOL_IMM lit
+
+compileExpr (LiteralExpr (CharValue lit)) =
+  A.emitOp $ PUSH_INT_IMM $ fromIntegral lit
+
+compileExpr (LiteralExpr (StringValue lit)) = do
+  strID <- A.addStringConstant lit
+  A.emitOp $ PUSH_CONST strID
+
+compileExpr (LiteralExpr (ArrayValue litArray)) =
+  -- TODO: compile the array of literals.
+  pure $ Right()
+
+
+tlFctToTmpl :: CompFunction RawStatement -> Either CompError Fu.FunctionTpl
+tlFctToTmpl fct = case A.assemble fct of
+  Left err -> Left $ CompError [(0, "@[tlFctToTmpl] assemble err: " <> show err)]
+  Right ops -> Right . Fu.Exec $ Fu.FunctionDefTpl {
+    name = fct.name
+  , args = V.empty
+  , returnType = Fu.VoidT
+  , bytecode = ops
+  , ops = fct.opcodes
+  , labels = fct.labels
+  }
+
 

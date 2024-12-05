@@ -27,8 +27,12 @@ library
       Cannelle.Assembler.Logic
       Cannelle.Common.Error
       Cannelle.Common.TsAST
+      Cannelle.Compiler.ConstantPool
+      Cannelle.Compiler.Context
       Cannelle.Compiler.Debug
+      Cannelle.Compiler.Functions
       Cannelle.Compiler.Types
+      Cannelle.Compiler.Variables
       Cannelle.FileUnit.InOut
       Cannelle.FileUnit.Types
       Cannelle.Fuddle.AST

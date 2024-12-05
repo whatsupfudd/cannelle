@@ -21,3 +21,7 @@ addHeapEntry context heapEntry =
     heapID = fromIntegral $ V.length context.tmpGlobalHeap
   in
   (context { tmpGlobalHeap = V.snoc context.tmpGlobalHeap heapEntry }, heapID)
+
+
+getFromHeap :: VmContext -> Int32 -> Maybe HeapEntry
+getFromHeap context heapID = context.tmpGlobalHeap V.!? fromIntegral heapID

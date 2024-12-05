@@ -103,8 +103,8 @@ dataLiteral =
 
 actionSpec :: Parser TechMode
 actionSpec =
-  subparser $ command "run" (info (techMode <**> helper) (
-      progDesc "Run the template engine"
+  subparser $ command "parse" (info (techMode <**> helper) (
+      progDesc "Parse a template engine file"
     ))
 
 techMode :: Parser TechMode

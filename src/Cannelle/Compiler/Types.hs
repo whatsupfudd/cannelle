@@ -15,7 +15,7 @@ import Cannelle.VM.OpCodes
 import Cannelle.VM.Context (MainText, ConstantValue)
 
 
-data Show subCtxtT => CompContext subCtxtT statementT = CompContext {
+data Show subCtxtT => GenCompContext subCtxtT statementT = GenCompContext {
     hasFailed :: Maybe MainText
     , cteEntries :: ConstantEntries
     -- functions: fully parsed functions beside top one.
@@ -29,7 +29,7 @@ data Show subCtxtT => CompContext subCtxtT statementT = CompContext {
     , moduleSlots :: Mp.Map Int32 Int32
     , functionSlots :: Mp.Map (Int32, Int32) (FunctionRef, Int32)
     , importedFcts :: Mp.Map MainText [ (FctDefComp, Int32) ]
-    , phaseBFct :: [ CompFunction statementT ]
+    -- TODO: move the phaseBFct to Hugo subContext:
     , constantPool :: V.Vector ConstantValue
     , cteMaps :: ConstantMap
     {-- unused:
@@ -147,6 +147,7 @@ data FctDefComp = FctDefComp {
     , def :: SignaturePart
   }
   deriving Show
+
 data SignaturePart =
   MonoDef Signature
   | PolyDef [ Signature ]
@@ -161,5 +162,5 @@ data Signature = SgnS {
   deriving Show
 
 -- Overall state container for the compilation process:
-type GenCompileResult subCtxt statementT result = State (CompContext subCtxt statementT) (Either CompError result)
+type GenCompileResult subCtxt statementT result = State (GenCompContext subCtxt statementT) (Either CompError result)
 

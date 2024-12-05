@@ -11,16 +11,18 @@ import Cannelle.Common.Error (CompError (..), concatErrors, splitResults)
 -- import Cannelle.VM.OpCodes
 import Cannelle.VM.Context (MainText)
 
-import qualified Cannelle.Assembler.Logic as A
-import Cannelle.Compiler.Types (GenCompileResult, CompContext (..), CompFunction (..), ConstantMap (..))
 import Cannelle.VM.OpCodes
+import qualified Cannelle.Assembler.Logic as A
+-- The types imported from Cannelle.Compiler.Types are for accessing their interval components.
+import Cannelle.Compiler.Types (GenCompileResult, GenCompContext (..), CompFunction (..), ConstantMap (..))
+import qualified Cannelle.Compiler.Functions as Cf
 
 import qualified Cannelle.Hugo.Common as C
 import Cannelle.Hugo.AST
 import Cannelle.Hugo.Types
 
 
-compPhaseC :: FullCompContext -> Either CompError FullCompContext
+compPhaseC :: CompContext -> Either CompError CompContext
 compPhaseC ctx =
   let
     hFctStack :| tailStack = ctx.curFctDef
@@ -47,9 +49,8 @@ compPhaseC ctx =
         ctxB <- get
         let
           updCurFct :| tS = ctxB.curFctDef
-          updCtx = ctxB { 
-                phaseBFct = updCurFct : ctxB.phaseBFct
-              }
+          updSubCtxt = ctxB.subContext { phaseBFct = updCurFct : ctxB.subContext.phaseBFct }
+          updCtx = ctxB { subContext = updSubCtxt }
         put updCtx
         pure $ Right ()
       Just err -> pure . Left $ err
@@ -98,7 +99,7 @@ genStmtOps stmt@(FStatement { as = RangeFS mbVars expr loopStmt mbElseStmt }) = 
   -- Keep the iteration slice as the floor of the stack for this statement:
   A.emitOp DUP_SLICE
   A.emitOp DUP_1
-  C.pushIterLabels (startLabel, exitLabel)
+  A.pushIterLabels (startLabel, exitLabel)
   A.emitOp NULL_SLICE
   A.emitOp $ JUMP_TRUE (LabelRef noLoop)
   A.emitOp TAIL_SLICE
@@ -143,7 +144,7 @@ genStmtOps stmt@(FStatement { as = RangeFS mbVars expr loopStmt mbElseStmt }) = 
       A.setLabelPos noLoop
       genStmtOps elseStmt
   A.setLabelPos exitLabel
-  C.popIterLabels
+  A.popIterLabels
   A.emitOp POP_1
 
 
@@ -184,10 +185,10 @@ genStmtOps stmt@(FStatement { as = DefineFS labelID returnSize body }) = do
     Nothing ->
       pure . Left $ CompError [(0, "DefineFS: Function slot not found: " <> show labelID)]
     Just fctID -> do
-      C.pushFunctionV2 fctID
+      Cf.pushFunctionV2 fctID
       genStmtOps body
       A.emitOp $ RETURN returnSize
-      C.popFunctionVoid
+      Cf.popFunctionVoid
 
 
 -- This is only a matter of setting up the context for the function call, and then calling it.
@@ -278,14 +279,14 @@ genStmtOps stmt@(FStatement { as = ListFS stmts }) = do
 
 
 genStmtOps stmt@(FStatement { as = ContinueFS }) = do
-  mbIterLabels <- C.getIterLabels
+  mbIterLabels <- A.getIterLabels
   case mbIterLabels of
     Just (iterLabel, endLabel) -> A.emitOp $ JUMP (LabelRef iterLabel)
     Nothing -> pure . Left $ CompError [(0, "ContinueFS: No active loop to continue.")]
 
 
 genStmtOps stmt@(FStatement { as = BreakFS }) = do
-  mbIterLabels <- C.getIterLabels
+  mbIterLabels <- A.getIterLabels
   case mbIterLabels of
     Just (iterLabel, endLabel) -> A.emitOp $ JUMP (LabelRef endLabel)
     Nothing -> pure . Left $ CompError [(0, "BreakFS: No active loop to break.")]

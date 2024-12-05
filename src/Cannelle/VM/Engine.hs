@@ -155,15 +155,15 @@ doVM context =
         let
           !opTable = buildOpTable
         in do
-        eiRez <- doOpcode opTable inCtxt frame opWithArgs
+        eiRez <- doOpcode opTable inCtxt frame opWithArgs frame.pc
         case eiRez of
           Right (!retCtxt, !retFrame, !voOper) -> do
             case voOper of
               ContinueVO ->
-                doByteCodeVM retCtxt (retFrame { pc = frame.pc + opLength }) opcodes
+                doByteCodeVM retCtxt (retFrame { pc = retFrame.pc + opLength }) opcodes
               PushFrameVO newFrame ->
                 let
-                  !updRetFrame = retFrame { pc = frame.pc + opLength }
+                  !updRetFrame = retFrame { pc = retFrame.pc + opLength }
                   !topStack Ne.:| !restStack = retCtxt.frameStack
                   !nCtxt = retCtxt { frameStack = newFrame Ne.<| (updRetFrame Ne.:| restStack) }
                 in
@@ -203,8 +203,8 @@ analyzeVmError err heap stack =
     StackError msg -> "Stack error: " <> msg
 
 
-doOpcode :: V.Vector OpImpl -> VmContext -> ExecFrame -> V.Vector Int32 -> IO (Either VmError (VmContext, ExecFrame, VmOperation))
-doOpcode opTable context frame opWithArgs =
+doOpcode :: V.Vector OpImpl -> VmContext -> ExecFrame -> V.Vector Int32 -> Int -> IO (Either VmError (VmContext, ExecFrame, VmOperation))
+doOpcode opTable context frame opWithArgs pc =
   let
     mbOpID = opWithArgs V.!? 0
   in
@@ -217,7 +217,7 @@ doOpcode opTable context frame opWithArgs =
         let
           !opImpl = opTable V.! fromIntegral opID
         in do
-        putStrLn $ "@[doOpcode] op: " <> debugOpArgs opWithArgs
+        putStrLn $ "@[doOpcode] op#" <> show pc <> ": " <> debugOpArgs opWithArgs
         opImpl context frame opWithArgs
 
 

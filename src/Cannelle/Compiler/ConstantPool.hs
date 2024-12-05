@@ -1,35 +1,22 @@
 {-# LANGUAGE BangPatterns #-}
-module Cannelle.Hugo.CompilerB where
+module Cannelle.Compiler.ConstantPool where
 
-import Control.Monad (foldM)
 import Control.Monad.State (runState)
 
 import Data.Int (Int32)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (fromMaybe)
-import qualified Data.Map as Mp
+import qualified Data.Map.Strict as Mp
 import qualified Data.Vector as V
 
-import Cannelle.Common.Error (CompError (..), splitResults)
 import Cannelle.VM.Context (MainText, ConstantValue (..))
+import Cannelle.Common.Error (CompError (..), splitResults)
+import Cannelle.Compiler.Types
+import Data.Maybe (fromMaybe)
 import qualified Cannelle.Assembler.Logic as A
--- The types imported from Cannelle.Compiler.Types are for accessing their interval components.
-import Cannelle.Compiler.Types (GenCompileResult, GenCompContext (..)
-      , CompFunction (..), ConstantEntries (..),CompType (..)
-      , SimpleType (..), CompConstant (..), StructField (..), ConstantMap (..))
-import Cannelle.Compiler.ConstantPool (fusePartA, fusePartB)
-
-import Cannelle.Hugo.AST (FStatement)
-import Cannelle.Hugo.Types
 
 
-compPhaseB :: CompContext -> Either CompError CompContext
-compPhaseB ctxtA =
-  fusePartA ctxtA >>= fusePartB
-
-{-
-partA :: CompContext -> Either CompError CompContext
-partA ctxtA =
+fusePartA :: (Show subCtxtT) => GenCompContext subCtxtT statementT -> Either CompError (GenCompContext subCtxtT statementT)
+fusePartA ctxtA =
   let
     hFctStack :| tailStack = ctxtA.curFctDef
     allFcts = map fst $ Mp.elems ctxtA.fctDefs
@@ -45,8 +32,8 @@ partA ctxtA =
 
 -- At this point, every item in the cteEntries has been registered. It is now possible to
 -- transfer all values into the main constant pool.
-partB :: CompContext -> Either CompError CompContext
-partB ctxtB =
+fusePartB :: (Show subCtxtT) => GenCompContext subCtxtT statementT -> Either CompError (GenCompContext subCtxtT statementT)
+fusePartB ctxtB =
   -- Fill in the constant pool:
   let
     nbrInternalFcts = fromIntegral (length $ Mp.elems ctxtB.fctDefs)
@@ -122,7 +109,7 @@ partB ctxtB =
 
 
 -- Enter all related strings into the string table and build a raw fct ref.
-registerFctType :: CompFunction FStatement -> GenCompileResult HugoCompileCtxt FStatement (Int32, (Int32, Int32, Int32, Int32, [Int32]))
+registerFctType :: (Show subCtxtT) => CompFunction statementT -> GenCompileResult subCtxtT statementT (Int32, (Int32, Int32, Int32, Int32, [Int32]))
 registerFctType fct = do
   nameID <- A.addStringConstant fct.name
   let
@@ -161,4 +148,3 @@ encodeSimpleType aType =
     NumberST -> "n"
     BoolST -> "b"
     StringST -> "s"
--}

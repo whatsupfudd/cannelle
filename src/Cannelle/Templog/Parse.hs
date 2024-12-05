@@ -2,8 +2,10 @@ module Cannelle.Templog.Parse where
 
 import Control.Monad (foldM)
 import qualified Data.ByteString as Bs
+import Data.Text (pack)
+import qualified Data.Text.Encoding as T
 import qualified Data.Map as Mp
-
+import qualified Data.Vector as V
 
 import Foreign.C.String ( newCStringLen, peekCString )
 import Foreign.Ptr (Ptr)
@@ -18,21 +20,21 @@ import TreeSitter.Node ( nodeStartPoint ,ts_node_copy_child_nodes, Node(..)
 import TreeSitter.Haskell ( tree_sitter_haskell )
 
 import Cannelle.Common.Error ( CompError )
-
 import Cannelle.Common.TsAST (tryParseFromContent)
+import qualified Cannelle.FileUnit.Types as Fu
 
 import Cannelle.Templog.Types
 import Cannelle.Templog.Parser (compileParseBlocks)
 
 
-parse :: FilePath -> IO (Either CompError FileTempl)
+parse :: FilePath -> IO (Either CompError Fu.FileUnit)
 parse path = do
   putStrLn $ "@[tsParseTemplog] parsing: " ++ path
   content <- Bs.readFile path
   parseFromContent True path content Nothing
 
 
-parseFromContent :: Bool -> FilePath -> Bs.ByteString -> Maybe FilePath -> IO (Either CompError FileTempl)
+parseFromContent :: Bool -> FilePath -> Bs.ByteString -> Maybe FilePath -> IO (Either CompError Fu.FileUnit)
 parseFromContent debugMode filePath content mbOutPath = do
   parser <- ts_parser_new
   ts_parser_set_language parser tree_sitter_haskell
@@ -47,20 +49,24 @@ parseFromContent debugMode filePath content mbOutPath = do
           printChildren children childCount 0
           putStrLn $ "@[printChildren] <<<"
           -}
-          eicompiRez <- compileParseBlocks filePath content tsTree
+          eicompiRez <- compileParseBlocks debugMode filePath content tsTree
           case eicompiRez of
             Left err -> do
               putStrLn "@[tsParseFile] compileParseBlocks err: "
               print err
               pure $ Left err
-            Right vmModule -> do
+            Right fileUnit -> do
               {- serialize that info to the cache file for the template (same path minus name ext + .dtch) -}
-              pure . Right $ FileTempl filePath Nothing Mp.empty [ Exec vmModule ] []
+              pure $ Right fileUnit
       else
-          pure . Right $ FileTempl filePath Nothing Mp.empty [ CloneVerbatim filePath ] []
-
-
-  -- tsParseFile parser path
+          pure . Right $ Fu.FileUnit {
+            name = Just . T.encodeUtf8 . pack $ filePath
+          , description = Nothing
+          , constants = V.empty
+          , definitions = V.singleton $ Fu.Concat Fu.FlatCM content
+          , routing = V.empty
+          , imports = V.empty
+        }
 
 
 parseAst :: Bool -> Ptr Node -> Int -> IO (Either CompError TemplTsTree)
