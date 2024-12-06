@@ -1,4 +1,4 @@
-module Cannelle.Haskell.AST where
+module Cannelle.Templog.AST where
 
 import Data.ByteString (ByteString)
 import Data.Int (Int32)
@@ -120,3 +120,40 @@ data StmtAst = StmtAst {
       , children :: [NodeAst]
     }
   deriving Show
+
+
+data AStatement =
+    BlockSA [ AStatement ]
+  | IfShortSA AExpression (Maybe [Int32])           -- @? <bool expr> @[ [arg+]
+  | IfSA AExpression (Maybe [Int32])                -- if <bool expr> @[ [arg+]
+  | ElseSA                                                -- @] else @[ [arg+]
+  | ElseIfSA AExpression (Maybe [Int32])            -- @] else if <bool expr> @[ [arg+]
+  | BlockEndSA                                            -- @]
+  | ImportSA Bool QualifiedIdent (Maybe QualifiedIdent) [ Int32 ]
+  | BindOneSA IdentWithParam AExpression            -- identWithParam = <expression>
+  | LetSA [ (IdentWithParam, AExpression) ] AExpression  -- let [ identWithParam = <expression> ] in <expression>
+  | ExpressionSA AExpression
+  deriving Show
+
+
+data AExpression =
+  LiteralEA LiteralValue
+  | ParenEA AExpression
+  | ArrayEA [ AExpression ]
+  | UnaryEA UnaryOp AExpression
+  | BinOpEA BinaryOp AExpression AExpression
+  | ReductionEA QualifiedIdent [ AExpression ]
+  deriving Show
+
+
+data ALiteralValue =
+  NumeralVA Int
+  | DoubleVA Double
+  | BoolVA Bool
+  | CharVA Word8
+  | StringVA Int32
+  | TupleVA [ ALiteralValue ]
+  | ArrayVA [ ALiteralValue ]
+  | StructVA [ (Int32, ALiteralValue) ]
+  deriving Show
+

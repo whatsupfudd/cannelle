@@ -1,4 +1,4 @@
-module Cannelle.Haskell.Parser where
+module Cannelle.Templog.Compiler.PhaseA where
 
 import Control.Applicative (asum, optional, many, (<|>), some)
 
@@ -24,7 +24,7 @@ import qualified Text.Megaparsec.Debug as MD
 
 
 import Cannelle.Common.Error (CompError (..))
-import Cannelle.Haskell.AST
+import Cannelle.Templog.AST
 
 
 type Parser = M.Parsec Void BS.ByteString

@@ -20,8 +20,8 @@ import TreeSitter.Node (  Node(..), TSPoint(TSPoint, pointRow, pointColumn) )
 import TreeSitter.Language (symbolToName, fromTSSymbol)
 
 import Cannelle.Common.Error (CompError (..))
-import qualified Cannelle.Haskell.Parser as Hp
-import qualified Cannelle.Haskell.Compiler as Hc
+import qualified Cannelle.Templog.Compiler.PhaseA as Pa
+import qualified Cannelle.Templog.Compiler.PhaseB as Pb
 import Cannelle.FileUnit.Types (FileUnit)
 import qualified Cannelle.VM.Context as Vm
 
@@ -42,27 +42,27 @@ compileParseBlocks debugMode codeName fileContent tsTree =
       -- putStrLn $ "@[compileParseBlocks] content: " ++ show blockText
       case b of
         Logic _ -> do
-          parseRez <- Hp.parseLogicBlock (startPos b) codeName blockText
+          parseRez <- Pa.parseLogicBlock (startPos b) codeName blockText
           case parseRez of
             Left err -> pure $ Left err
             Right stmts -> pure $ Right stmts
         Verbatim _ ->
           let
-            parseRez = Hp.parseVerbatimBlock blockText
+            parseRez = Pa.parseVerbatimBlock blockText
           in
           pure $ parseRez
     ) tsTree.blocks
   let
     (lefts, rights) = foldl eiSplit ([], []) rezA
   if null lefts then
-    case Hp.astBlocksToTree (fromRight [] $ sequence rights) of
+    case Pa.astBlocksToTree (fromRight [] $ sequence rights) of
       Left err -> pure $ Left err
       Right astTree -> do
         -- putStrLn $ "@[compileParseBlocks] ast blocks: " ++ show (sequence rights)
         -- putStrLn $ "@[compileParseBlocks] ast tree: " ++ show astTree
         -- TODO: load prelude modules and pass to compileAstTree.
         -- TODO: scan the AST for qualifed identifiers, load the module & term definitions, and also pass to compileAstTree.
-        rezComp <- Hc.compile debugMode codeName [astTree]
+        rezComp <- Pb.compile debugMode codeName [astTree]
         case rezComp of
           Left err -> pure $ Left err
           Right fileUnit -> pure $ Right fileUnit

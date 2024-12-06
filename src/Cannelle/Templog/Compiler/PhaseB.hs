@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use record patterns" #-}
-module Cannelle.Haskell.Compiler where
+module Cannelle.Templog.Compiler.PhaseB where
 
 import Control.Monad (foldM, when)
 import Control.Monad.State (State, get, put, runState, modify)
@@ -29,8 +29,7 @@ import Cannelle.Compiler.Debug
 import Cannelle.FileUnit.Types (FileUnit (..), FunctionDefTpl (..))
 import qualified Cannelle.FileUnit.Types as Fu
 
-import Cannelle.Haskell.AST
-import Data.ByteString.Builder.Prim (condB)
+import Cannelle.Templog.AST
 
 
 type CompContext = GenCompContext () RawStatement

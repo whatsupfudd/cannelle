@@ -41,9 +41,6 @@ library
       Cannelle.Fuddle.Parser.Statements
       Cannelle.Fuddle.Parser.Types
       Cannelle.Fuddle.Print
-      Cannelle.Haskell.AST
-      Cannelle.Haskell.Compiler
-      Cannelle.Haskell.Parser
       Cannelle.Hugo.ActionMerger
       Cannelle.Hugo.AST
       Cannelle.Hugo.Common
@@ -84,6 +81,9 @@ library
       Cannelle.React.Parser.Types
       Cannelle.React.Print
       Cannelle.React.Types
+      Cannelle.Templog.AST
+      Cannelle.Templog.Compiler.PhaseA
+      Cannelle.Templog.Compiler.PhaseB
       Cannelle.Templog.Parse
       Cannelle.Templog.Parser
       Cannelle.Templog.Print
