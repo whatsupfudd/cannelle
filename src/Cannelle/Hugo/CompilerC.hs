@@ -78,7 +78,7 @@ genStmtOps stmt@(FStatement { as = ExpressionFS expr }) = do
 genStmtOps stmt@(FStatement { as = IfFS cond thenStmt mbElseStmt }) = do
   notThenLabel <- A.newLabel
   genExprOps cond
-  A.emitOp $ CMP_BOOL_IMM
+  A.emitOp CMP_BOOL_IMM
   A.emitOp $ JUMP_FALSE (LabelRef notThenLabel)
   genStmtOps thenStmt
   case mbElseStmt of

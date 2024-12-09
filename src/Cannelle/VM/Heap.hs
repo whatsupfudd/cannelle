@@ -23,5 +23,13 @@ addHeapEntry context heapEntry =
   (context { tmpGlobalHeap = V.snoc context.tmpGlobalHeap heapEntry }, heapID)
 
 
+addFrameHeapEntry :: ExecFrame -> HeapEntry -> (ExecFrame, Int32)
+addFrameHeapEntry frame heapEntry =
+  let
+    heapID = fromIntegral $ V.length frame.heap
+  in
+  (frame { heap = V.snoc frame.heap heapEntry }, heapID)
+
+
 getFromHeap :: VmContext -> Int32 -> Maybe HeapEntry
 getFromHeap context heapID = context.tmpGlobalHeap V.!? fromIntegral heapID

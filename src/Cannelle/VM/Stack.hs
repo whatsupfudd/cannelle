@@ -62,7 +62,7 @@ popString context frame =
               case aHeapValue of
                 StringHE aStr -> Right (frame { stack = newStack }, aStr, True)
                 _ ->
-                  Left . StackError $ "@[popString] , heap ID " <> show heapID <> " is not a string."
+                  Left . StackError $ "@[popString] , heap ID " <> show heapID <> " is not a string: " <> show aHeapValue
         (IntSV, anInt) ->
           Right (frame { stack = newStack }, TE.encodeUtf8 . pack $ show anInt, False)
         (GlobalHeapRefSV, aValue) ->

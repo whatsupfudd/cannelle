@@ -8,6 +8,8 @@ import qualified Data.Vector as V
 import Cannelle.VM.Context (MainText)
 
 import Cannelle.Compiler.Types
+
+
 initCompContext :: (Show subCtxt) => MainText -> subCtxt -> Mp.Map Int32 (MainText, Maybe Int32) -> Mp.Map MainText [(FctDefComp, Int32)] -> GenCompContext subCtxt statementT
 initCompContext funcLabel subCtxt impModules impFcts = GenCompContext {
     hasFailed = Nothing

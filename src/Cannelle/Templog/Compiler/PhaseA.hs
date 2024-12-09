@@ -1,10 +1,14 @@
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 module Cannelle.Templog.Compiler.PhaseA where
 
 import Control.Applicative (asum, optional, many, (<|>), some)
+import Control.Monad (foldM, mapM, liftM)
+import Control.Monad.State (State, MonadTrans (lift))
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as Bi
 import Data.Functor (($>))
+import Data.Int (Int32)
 import Data.Maybe (fromMaybe, isJust, fromMaybe)
 import Data.Sequence (Seq, fromList)
 import Data.Text (Text, cons, pack, unpack)
@@ -21,50 +25,30 @@ import qualified Text.Megaparsec.Byte as M
 import qualified Text.Megaparsec.Byte.Lexer as L
 import qualified Text.Megaparsec.Debug as MD
 
+import TreeSitter.Node ( TSPoint(..) )
 
-
-import Cannelle.Common.Error (CompError (..))
+import Cannelle.Common.Error (CompError (..), splitResults, concatFoundErrors)
+import qualified Cannelle.Assembler.Logic as A
 import Cannelle.Templog.AST
-
-
-type Parser = M.Parsec Void BS.ByteString
-
-
-isReservedWord :: BS.ByteString -> Bool
-isReservedWord word =
-  case word of
-    "if" -> True
-    "then" -> True
-    "else" -> True
-    "import" -> True
-    "qualified" -> True
-    "as" -> True
-    "True" -> True
-    "False" -> True
-    _ -> False
-
-
-oDbg :: (MD.MonadParsecDbg e s m, Show a) => String -> m a -> m a
-oDbg label parser =
-  if False then MD.dbg label parser else parser
-
+import Cannelle.Templog.Compiler.GramParser (templogStmt)
+import Cannelle.Templog.Compiler.Types
 
 {- TODO: when megaparsec logic is stable, change this from IO to pure (IO is for debugging with runTest...). -}
-parseLogicBlock :: (Int, Int) -> String -> BS.ByteString -> IO (Either CompError BlockAst)
-parseLogicBlock startOffset codeName blockText = do
+parseLogicSegment :: String -> CodeSegment -> BS.ByteString -> Either CompError CodeSegment
+parseLogicSegment codeName aSegment sText = do
   let
     logicText = BS.dropWhileEnd (\c -> c == 32 || c == 10) . BS.dropWhile (\c -> c == 32 || c == 10)
-          . BS.dropWhileEnd (== 125) . BS.dropWhile (== 123) $ blockText
-    eiParseRez = run codeName logicText
+          . BS.dropWhileEnd (== 125) . BS.dropWhile (== 123) $ sText
+    eiParseRez = M.parse templogStmt codeName logicText
   -- runTest logicText
   case eiParseRez of
     Left err ->
       -- putStrLn $ "@[parseLogicBlock] run err: " ++ show err
       -- "@[parseLogicBlock] parse err: " <>
-      pure . Left $ CompError [(0, unpack . TE.decodeUtf8 $ displayError startOffset err)]
+      Left $ CompError [(fromIntegral aSegment.pos.start.pointRow, unpack . TE.decodeUtf8 $ displayError aSegment.pos.start err)]
     Right parseRez ->
       -- putStrLn $ "@[parseLogicBlock] parseRez: " ++ show parseRez
-      pure . Right $ LogicBlock parseRez
+      Right $ aSegment { content = StatementPA parseRez }
 
 {-
   - create a root node that is the global context, push on stack, then for each pBlock:
@@ -77,92 +61,274 @@ parseLogicBlock startOffset codeName blockText = do
       - create an AST node that is a 'call spit function' with the pBlock address in the constant region,
 -}
 
-astBlocksToTree :: [BlockAst] -> Either CompError NodeAst
-astBlocksToTree aBlocks =
-  let
-    rootNode = AstLogic $ StmtAst (SeqST []) []
-    tree = foldl treeMaker (rootNode, [], Right ()) aBlocks
-  in
-    case tree of
-      (top, _, Right _) -> Right top
-      (_, _, Left err) -> Left err
-  where
-    treeMaker :: (NodeAst, [NodeAst], Either CompError ()) -> BlockAst -> (NodeAst, [NodeAst], Either CompError ())
-    treeMaker (topStack, stack, result) aBlock =
-      case aBlock of
-        VerbatimBlock vText ->
+
+phaseAtoB :: [CodeSegment] -> CompState PosStatement
+phaseAtoB segments =
+  case segments of
+    [] -> pure $ Left $ CompError [(0, "@[phaseA2B] empty segments list!") ]
+    _ ->
+      let
+        startPos = (head segments).pos.start
+        endPos = case segments of
+          [] -> startPos
+          _ -> (last segments).pos.end
+        blockRoot = PStmt (SegLoc startPos endPos) $ BlockSB []
+      in do
+      tree <- foldM treeMaker (blockRoot, [], Right ()) segments
+      case tree of
+        (top, restStmts, Right _) -> pure . Right $ top
+        (_, _, Left err) -> pure $ Left err
+    {-
+    (firstSeg : restSegs) -> do
+      eiPosStmt <- convertSegmentAtoB firstSeg
+      case eiPosStmt of
+        Left err -> pure $ Left err
+        Right posStmt -> case posStmt.stmt of
+          ElseSB {} -> pure $ Left $ CompError [(0, "@[phaseA2B] else stmt not allowed at top level!") ]
+          ElseIfSB {} -> pure $ Left $ CompError [(0, "@[phaseA2B] else-if stmt not allowed at top level!") ]
+          NoOpSB -> pure $ Left $ CompError [(0, "@[phaseA2B] end-block stmt not allowed at top level!") ]
+          _ -> do
+            tree <- foldM treeMaker (posStmt, [], Right ()) restSegs
+            case tree of
+              (top, restStmts, Right _) -> -- pure . Right $ top : restStmts
+                pure . Left $ CompError [(0, "@[phaseA2B] tree: " <> show tree)]
+              (_, _, Left err) -> pure $ Left err
+    -}
+
+
+convertSegmentAtoB :: CodeSegment -> CompState PosStatement
+convertSegmentAtoB segment =
+  case segment.content of
+    StatementPA aStmt -> do
+      eiBStmt <- convertStmtAtoB segment.pos aStmt
+      case eiBStmt of
+        Left err -> pure $ Left err
+        Right bStmt -> pure $ Right $ PStmt segment.pos bStmt
+    _ -> pure $ Left $ CompError [(0, "@[convertSegmentAtoB] invalide segment" <> show segment)]
+
+
+convertStmtAtoB :: SegmentLocation -> AStatement -> CompState BStatement
+convertStmtAtoB segLoc aStmt = do
+  case aStmt of
+    VerbatimAT vText -> do
+      vID <- A.addVerbatimConstant vText
+      pure . Right $ VerbatimSB vID
+    BlockAT subsA -> do
+      eiSubsBs <- mapM (convertStmtAtoB segLoc) subsA
+      case splitResults eiSubsBs of
+        (Nothing, subsBs) -> pure . Right . BlockSB $ map (PStmt segLoc) subsBs
+        (Just err, _) -> pure $ Left err
+    IfAT cond args -> do
+      eiCondB <- convertExprAtoB cond
+      case eiCondB of
+        Left err -> pure $ Left err
+        Right condB -> do
+          argsIDs <- mapM A.addStringConstant args
+          pure . Right $ IfSB condB argsIDs (PStmt segLoc NoOpSB) Nothing
+    ElseAT args -> do
+      argsIDs <- mapM A.addStringConstant args
+      pure . Right $ ElseSB argsIDs (PStmt segLoc NoOpSB)
+    ElseIfAT cond args -> do
+      eiCondB <- convertExprAtoB cond
+      case eiCondB of
+        Left err -> pure $ Left err
+        Right condB -> do
+          argsIDs <- mapM A.addStringConstant args
+          pure . Right $ ElseIfSB condB argsIDs (PStmt segLoc NoOpSB) Nothing
+    ImportAT isQualified qualIdent mbAsLabel items -> do
+      qualIDs <- mapM A.addStringConstant qualIdent
+      asIDs <- case mbAsLabel of
+        Nothing -> pure Nothing
+        Just asLabels -> Just <$> mapM A.addStringConstant asLabels
+      itemIDs <- mapM A.addStringConstant items
+      -- TODO: add the import to the comp-context.
+      pure . Right $ ImportSB isQualified qualIDs asIDs itemIDs
+    BindOneAT (qIdent, params) expr -> do
+      qIdentIDs <- mapM A.addStringConstant qIdent
+      paramsIDs <- mapM (mapM A.addStringConstant) params
+      exprB <- convertExprAtoB expr
+      case exprB of
+        Left err -> pure $ Left err
+        Right exprB -> pure . Right $ BindOneSB (qIdentIDs, paramsIDs) exprB
+    LetAT defs exprRez -> do
+      defsB <- mapM (\((qIdent, args), expr) -> do
+        qIdentIDs <- mapM A.addStringConstant qIdent
+        argsIDs <- mapM (mapM A.addStringConstant) args
+        exprB <- convertExprAtoB expr
+        case exprB of
+          Left err -> pure $ Left err
+          Right exprB -> pure . Right $ ((qIdentIDs, argsIDs), exprB)
+        ) defs
+      case splitResults defsB of
+        (Nothing, defsB) -> do
+          exprRezB <- convertExprAtoB exprRez
+          case exprRezB of
+            Left err -> pure $ Left err
+            Right exprRezB -> pure . Right $ LetSB defsB exprRezB
+        (Just err, _) -> pure $ Left err
+    BlockEndAT -> pure . Right $ NoOpSB
+    ExpressionAT expr -> do
+      exprB <- convertExprAtoB expr
+      case exprB of
+        Left err -> pure $ Left err
+        Right exprB -> pure . Right $ ExpressionSB exprB
+    _ -> pure $ Left $ CompError [(0, "@[convertStmtAtoB] invalide AStatement: " <> show aStmt)]
+
+
+
+convertExprAtoB :: AExpression -> CompState BExpression
+convertExprAtoB expr =
+  case expr of
+      LiteralA lit -> do
+        eiRez <- convertLitAtoB lit
+        case eiRez of
+          Left err -> pure $ Left err
+          Right litB -> pure . Right $ LiteralEB litB
+      ParenA expr -> do
+        eiRez <- convertExprAtoB expr
+        case eiRez of
+          Left err -> pure $ Left err
+          Right exprB -> pure . Right $ ParenEB exprB
+      ArrayA exprs -> do
+        eiRez <- mapM convertExprAtoB exprs
+        case splitResults eiRez of
+          (Nothing, exprsB) -> pure . Right $ ArrayEB exprsB
+          (Just err, _) -> pure $ Left err
+      UnaryA op expr -> do
+        eiRez <- convertExprAtoB expr
+        case eiRez of
+          Left err -> pure $ Left err
+          Right exprB -> pure . Right $ UnaryEB op exprB
+      BinOpA op expr1 expr2 -> do
+        eiRez1 <- convertExprAtoB expr1
+        case eiRez1 of
+          Left err -> pure $ Left err
+          Right expr1B -> do
+            eiRez2 <- convertExprAtoB expr2
+            case eiRez2 of
+              Left err -> pure $ Left err
+              Right expr2B -> pure . Right $ BinOpEB op expr1B expr2B
+      ReductionA qualIdent exprs -> do
+        qualIDs <- mapM A.addStringConstant qualIdent
+        eiRez <- mapM convertExprAtoB exprs
+        case splitResults eiRez of
+          (Nothing, exprsB) -> pure . Right $ ReductionEB qualIDs exprsB
+          (Just err, _) -> pure $ Left err
+
+
+convertLitAtoB :: LitValue BS.ByteString -> CompState (LitValue Int32)
+convertLitAtoB lit =
+  case lit of
+    IntL anInt -> pure . Right $ IntL anInt
+    BoolL aBool -> pure . Right $ BoolL aBool
+    CharL aChar -> pure . Right $ CharL aChar
+    StringL aStr -> do
+      strID <- A.addStringConstant aStr
+      pure . Right $ StringL strID
+    TupleL tuples -> do
+      eiTuplesB <- mapM convertLitAtoB tuples
+      case splitResults eiTuplesB of
+        (Nothing, tuplesB) -> pure . Right $ TupleL tuplesB
+        (Just err, _) -> pure $ Left err
+    ArrayL values -> do
+      eiValuesB <- mapM convertLitAtoB values
+      case splitResults eiValuesB of
+        (Nothing, valuesB) -> pure . Right $ ArrayL valuesB
+        (Just err, _) -> pure $ Left err
+    StructL fields -> do
+      eiFieldsB <- mapM (\(str, lit) -> do
+          strID <- A.addStringConstant str
+          litB <- convertLitAtoB lit
+          case litB of
+            Left err -> pure $ Left err
+            Right litB -> pure . Right $  (strID, litB)
+        ) fields
+      case splitResults eiFieldsB of
+        (Nothing, fieldsB) -> pure . Right $ StructL fieldsB
+        (Just err, _) -> pure $ Left err
+
+
+treeMaker :: (PosStatement, [PosStatement], Either CompError ()) -> CodeSegment -> State CompContext (PosStatement, [PosStatement], Either CompError ())
+treeMaker (topStack, restStack, result) curSeg =
+  case curSeg.content of
+    StatementPA stmt -> do
+      eiBStmt <- convertStmtAtoB curSeg.pos stmt
+      case eiBStmt of
+        Left err -> pure (topStack, restStack, Left $ concatFoundErrors [err, CompError [(0 , "@[treeMaker] at segment: " <> show curSeg.pos)]])
+        Right bStmt -> 
           let
-            (AstLogic topStmt) = topStack
-            updTop = AstLogic $ topStmt { children = topStmt.children <> [ CloneText vText ] }
+            newPStmt = PStmt curSeg.pos bStmt
           in
-          (updTop, stack, result)
-        LogicBlock stmtFd ->
-          case stmtFd of
-            IfShortST cond args ->
-              let
-                newRoot = AstLogic $ StmtAst stmtFd []
-              in
-              (newRoot, topStack : stack, result)
-
-            ElseIfThenST isElse cond args ->
-              let
-                newRoot = AstLogic $ StmtAst stmtFd []
-                (ncTop, ncStack, ncResult) =
-                  if isElse then
-                    -- make sure the top of stack is a else-if stmt, ie we close the previous and start a new one.
-                    -- Any other block should have been closed with a matching end-block.
-                    case topStack of
-                      AstLogic {}  ->
-                        case stack of
-                          [] ->
-                            (topStack, stack, Left $ CompError [(0, "@[treeMaker] ran out of stack for else-if stmt!")])
-                          parent : rest ->
-                            let
-                              (AstLogic curParent) = topStack
-                              updParent = AstLogic $ curParent { children = curParent.children <> [ topStack ] }
-                            in
-                            (updParent, rest, result)
-                      _ -> (topStack, stack, Left $ CompError [(0, "@[treeMaker] else-if stmt not matching a previous if/else-if block!")])
-                  else
-                    (topStack, stack, result)
-              in
-              case ncResult of
-                Left err -> (ncTop, ncStack, Left err)
-                Right _ -> (newRoot, ncTop : ncStack, ncResult)
-
-            SeqST subStmts ->
-              let
-                subTree = astBlocksToTree (map LogicBlock subStmts)
-              in
-                case subTree of
-                  Left err ->
-                    (topStack, stack, Left err)
-                  Right subTreeRoot ->
-                    let
-                      (AstLogic curTop) = topStack
-                      updTop = AstLogic $ curTop { children = curTop.children <> [ subTreeRoot ] }
-                    in
-                    (updTop, stack, result)
-
-            BlockEndST -> case stack of
-              [] ->
-                (topStack, stack, Left $ CompError [(0, "@[treeMaker] ran out of stack for end-block!" <> show topStack)])
-              parent : rest ->
-                let
-                  (AstLogic curParent) = parent
-                  updParent = AstLogic $ curParent { children = curParent.children <> [ topStack ] }
-                in
-                (updParent, rest, result)
-
-            _ ->
-              let
-                (AstLogic curTop) = topStack
-                updTop = AstLogic $ curTop { children = curTop.children <> [ AstLogic $ StmtAst stmtFd [] ] }
-              in
-              (updTop, stack, result)
+          case stmt of
+            VerbatimAT _ ->
+              case topStack.stmt of
+                VerbatimSB _ -> pure (newPStmt, topStack : restStack, result)
+                _ -> case addChildStmt topStack newPStmt of
+                  Left err -> pure (topStack, restStack, Left $ concatFoundErrors [err, CompError [(0, "@[treeMaker] invalid stmt: " <> show stmt)]])
+                  Right updStmt -> pure (updStmt, restStack, result)
+            BlockEndAT -> case restStack of
+              [] -> pure (topStack, restStack, Left $ CompError [(0, "@[treeMaker] ran out of stack for end-block, pos: " <> show curSeg.pos) ])
+              parent : rRest ->
+                case addChildStmt parent topStack of
+                  Left err -> pure (topStack, restStack, Left $ concatFoundErrors [err, CompError [(0, "@[treeMaker] at segment: " <> show curSeg.pos)]])
+                  Right newParent -> pure (newParent, rRest, result)
+            ElseAT _ -> pure (newPStmt, topStack : restStack, result)
+            ElseIfAT _ _ -> pure (newPStmt, topStack : restStack, result)
+            IfAT {} -> pure (newPStmt, topStack : restStack, result)
+            ExpressionAT _ ->
+              case addChildStmt topStack newPStmt of
+                Left err -> pure (topStack, restStack, Left $ concatFoundErrors [err, CompError [(0, "@[treeMaker] at segment: " <> show curSeg.pos)]])
+                Right updTopStack -> pure (updTopStack, restStack, result)
+            -- TODO: handle these:
+            ImportAT {} -> pure (newPStmt, topStack : restStack, result)
+            BindOneAT {} -> pure (newPStmt, topStack : restStack, result)
+            LetAT {} -> pure (newPStmt, topStack : restStack, result)
+        _ -> pure (topStack, restStack, Left $ CompError [(0, "@[treeMaker] invalid stmt: " <> show stmt)])
+    _ -> pure (topStack, restStack, Left $ CompError [(0, "@[treeMaker] invalid codeSegment: " <> show curSeg)])
 
 
-displayError :: (Int, Int) -> M.ParseErrorBundle BS.ByteString Void -> BS.ByteString
+addChildStmt :: PosStatement -> PosStatement -> Either CompError PosStatement
+addChildStmt parent child =
+  case parent.stmt of
+    BlockSB stmts -> Right $ PStmt (mergePosition parent child) $ BlockSB (stmts <> [child])
+    IfSB cond args thenStmt mbElseStmt ->
+      case child.stmt of
+        ElseSB {} -> 
+          let
+            newElse = case mbElseStmt of
+              Nothing -> Just child
+              Just elseStmt -> Just $ mergeChildren elseStmt child
+          in
+          Right $ PStmt (mergePosition parent child) $ IfSB cond args thenStmt newElse
+        ElseIfSB {} ->
+          let
+            newElse = case mbElseStmt of
+              Nothing -> Just child
+              Just elseStmt -> Just $ mergeChildren elseStmt child
+          in
+          Right $ PStmt (mergePosition parent child) $ IfSB cond args thenStmt newElse
+        _ -> Right $ parent { stmt = IfSB cond args (mergeChildren thenStmt child) mbElseStmt }
+    ElseSB args body -> Right $ parent { stmt = ElseSB args (mergeChildren body child) }
+    ElseIfSB cond args thenStmt elseStmt -> Right $ parent { stmt = ElseIfSB cond args (mergeChildren thenStmt child) elseStmt }
+    _ -> Left $ CompError [(0, "@[addChildStmt] invalid inclusing, parent: " <> show parent <> " , child: " <> show child)]
+
+
+mergeChildren :: PosStatement -> PosStatement -> PosStatement
+mergeChildren existing newcomer =
+  case existing.stmt of
+    NoOpSB -> newcomer
+    BlockSB stmts -> PStmt (mergePosition existing newcomer) $ BlockSB (stmts <> [newcomer])
+    _ -> PStmt (mergePosition existing newcomer) $ BlockSB [existing, newcomer]
+
+
+mergePosition :: PosStatement -> PosStatement -> SegmentLocation
+mergePosition pStmt1 pStmt2 = SegLoc {
+    start = pStmt1.pos.start,
+    end = pStmt2.pos.end
+  }
+
+
+displayError :: TSPoint -> M.ParseErrorBundle BS.ByteString Void -> BS.ByteString
 displayError lOffset err =
   let
     nErr = adjustLineOffset lOffset err
@@ -170,309 +336,13 @@ displayError lOffset err =
   TE.encodeUtf8 . pack $ M.errorBundlePretty nErr
 
 
-adjustLineOffset :: (Int, Int) -> M.ParseErrorBundle s e -> M.ParseErrorBundle s e
-adjustLineOffset (rowOffset, colOffset) peBundle =
+adjustLineOffset :: TSPoint -> M.ParseErrorBundle BS.ByteString Void -> M.ParseErrorBundle BS.ByteString Void
+adjustLineOffset tsPos peBundle =
   let
-    nSourceLine = M.unPos peBundle.bundlePosState.pstateSourcePos.sourceLine + rowOffset
-    nSourceColumn = M.unPos peBundle.bundlePosState.pstateSourcePos.sourceColumn + colOffset
+    nSourceLine = M.unPos peBundle.bundlePosState.pstateSourcePos.sourceLine + fromIntegral tsPos.pointRow
+    nSourceColumn = M.unPos peBundle.bundlePosState.pstateSourcePos.sourceColumn + fromIntegral tsPos.pointColumn
     nSourcePos = peBundle.bundlePosState.pstateSourcePos { M.sourceLine = M.mkPos nSourceLine, M.sourceColumn = M.mkPos nSourceColumn }
     nPosState = peBundle.bundlePosState { M.pstateSourcePos = nSourcePos }
   in
   peBundle { M.bundlePosState = nPosState }
 
-
-parseVerbatimBlock :: BS.ByteString -> Either CompError BlockAst
-parseVerbatimBlock vBlock = Right $ VerbatimBlock vBlock
-
-
-run :: String -> BS.ByteString -> Either (M.ParseErrorBundle BS.ByteString Void) RawStatement
-run = M.parse tmplStmt
-
-runTest :: BS.ByteString -> IO ()
-runTest = M.parseTest tmplStmt
-
-
-{- Top-level parsers: -}
-tmplStmt :: Parser RawStatement
-tmplStmt = curlies stmtSequence <|> stmtSequence
-
-
-stmtSequence :: Parser RawStatement
-stmtSequence = do
-  stmts <- singleStmt `M.sepBy1` endOfStmt
-  pure $ case stmts of
-    [a] -> a
-    _ -> SeqST stmts
-
-
-{- Statement parsers: -}
-singleStmt :: Parser RawStatement
-singleStmt =
-  oDbg "stmt" $ asum [
-      oDbg "bind-stmt" $ M.try bindStmt      -- <qual-ident> = <expr>
-      , oDbg "val-stmt" expressionStmt     -- <expr>
-      , oDbg "short-stmt" shortStmt     -- @? <expr> @[
-      , oDbg "blck-stmt" blockEnd      -- @]
-      , oDbg "elif-stmt" elseIfStmt    -- [else] if <expr> @[
-      , oDbg "imp-stmt" importStmt    -- import [qualified] <qual-ident> [ as <alias> ]
-    ]
-
-bindStmt :: Parser RawStatement
-bindStmt = do
-  a <- oDbg "bind-ident" qualifiedIdent
-  b <- oDbg "bind-args" $ many qualifiedIdent
-  symbol "="
-  BindOneST (a, b) <$> expressionFd
-
-
-expressionStmt :: Parser RawStatement
-expressionStmt = ExpressionST <$> expressionFd
-
-
-elseIfStmt :: Parser RawStatement
-elseIfStmt = do
-  -- a <- optional $ pReservedWord "else"
-  pReservedWord "if"
-  cond <- expressionFd
-  symbol "@["
-  args <- optional (symbol "\\" *> some identifier)
-  pure $ IfST cond args
-
-
-shortStmt :: Parser RawStatement
-shortStmt =
-  ifSS
-
-
-ifSS :: Parser RawStatement
-ifSS = do
-  pReservedWord "@?"
-  cond <- expressionFd
-  symbol "@["
-  args <- optional (symbol "\\" *> some identifier)
-  pure $ IfShortST cond args
-
-
-blockEnd :: Parser RawStatement
-blockEnd = do
-  symbol "@]"
-  mbElse <- optional $ do
-    pReservedWord "else"
-    mbIf <- optional $ do
-      pReservedWord "if"
-      expressionFd
-    symbol "@["
-    args <- case mbIf of
-      Nothing -> pure Nothing
-      Just _ -> optional (symbol "\\" *> some identifier)
-    case mbIf of
-      Nothing -> pure ElseST
-      Just cond -> pure $ ElseIfST cond args
-  case mbElse of
-    Nothing -> pure BlockEndST
-    Just elseStmt -> pure elseStmt
-
-
-importStmt :: Parser RawStatement
-importStmt = do
-  pReservedWord "import"
-  a <- optional $ pReservedWord "qualified"
-  b <- qualifiedIdent
-  c <- optional $ do
-    pReservedWord "as"
-    qualifiedIdent
-  d <- optional (
-      symbol "("
-      *> M.sepBy identifier (symbol ",")
-      <* symbol ")"
-    )
-  pure $ ImportST (isJust a) b c (fromMaybe [] d)
-
-
-expressionFd =
-  oDbg "expr" $ asum [
-      oDbg "pars-expr" parensExpr
-      , oDbg "oper-expr" $ M.try operatorExpr
-      , oDbg "redu-expr" reductionExpr
-      , oDbg "lit-expr" literalExpr
-      , oDbg "array-expr" arrayExpr
-    ]
-
-nonOperExpr :: Parser ExpressionTl
-nonOperExpr =
-  oDbg "no-expr" $ asum [
-    oDbg "pars-no-expr" parensExpr
-    , oDbg "redu-no-expr" reductionExpr
-    , oDbg "lit-no-expr" literalExpr
-    , oDbg "array-no-expr" arrayExpr
-  ]
-
-
-parensExpr :: Parser ExpressionTl
-parensExpr = do
-    symbol "("
-    a <- oDbg "expr-pars" expressionFd
-    symbol ")"
-    pure $ ParenExpr a
-
-
-
-{-
-  a <- literalExpr
-  symbol "+"
-  BinOpExpr AddOP a <$> literalExpr
--}
-
-
-literalExpr :: Parser ExpressionTl
-literalExpr =
-  LiteralExpr <$> asum [
-      oDbg "arit-lit" $ NumeralValue <$> integer
-      , oDbg "bool-lit" boolValue
-      , oDbg "char-lit" $ CharValue <$> singleQuoted M.anySingle  --  <* M.space
-      , oDbg "str-lit" $ StringValue <$> stringLiteral
-    ]
-
-
-boolValue :: Parser LiteralValue
-boolValue =
-  (pReservedWord "True" $> BoolValue True)
-  <|> (pReservedWord "False" $> BoolValue True)
-
-
-arrayExpr :: Parser ExpressionTl
-arrayExpr = do
-  symbol "["
-  a <- M.sepBy expressionFd (symbol ",")
-  symbol "]"
-  pure $ ArrayExpr a
-
-
-{- Terms for operators: -}
-
-operatorExpr :: Parser ExpressionTl
-operatorExpr = oDbg "operatorExpr" $ CE.makeExprParser nonOperExpr precOperators  -- expressionFd
-
-{- Operators: -}
-
-precOperators :: [[CE.Operator Parser ExpressionTl]]
-precOperators = [
-    [
-      CE.Prefix (UnaryExpr NegateOP <$ symbol "-")
-    , CE.Prefix (UnaryExpr NotOP <$ symbol "!")
-    , CE.Prefix (UnaryExpr BitNotOP <$ symbol "~")
-    ]
-  , [
-      CE.InfixL (BinOpExpr MultiplyOP <$ symbol "*")
-    , CE.InfixL (BinOpExpr DivideOP <$ symbol "/")
-    , CE.InfixL (BinOpExpr ModuloOP <$ symbol "%")
-    , CE.InfixL (BinOpExpr CarAddOP <$ symbol ":")
-    ]
-  , [
-      CE.InfixL (BinOpExpr ConcatOP <$ symbol "++")
-    , CE.InfixL (BinOpExpr ConcatOP <$ symbol "<>")
-    , CE.InfixL (BinOpExpr AddOP <$ symbol "+")
-    , CE.InfixL (BinOpExpr SubstractOP <$ symbol "-")
-    ]
-  , [
-      CE.InfixL (BinOpExpr BitShiftLeftOP <$ symbol "<<")
-      , CE.InfixL (BinOpExpr BitShiftRightOP <$ symbol ">>")
-    ]
-  , [
-      CE.InfixL (BinOpExpr LtOP <$ symbol "<")
-      , CE.InfixL (BinOpExpr LeOP <$ symbol "<=")
-      , CE.InfixL (BinOpExpr GtOP <$ symbol ">")
-      , CE.InfixL (BinOpExpr GeOP <$ symbol ">=")
-    ]
-  , [
-      CE.InfixL (BinOpExpr EqOP <$ symbol "==")
-      , CE.InfixL (BinOpExpr NeOP <$ symbol "/=")
-    ]
-  , [
-      CE.InfixL (BinOpExpr BitXorOP <$ symbol "^")
-    ]
-  , [
-      CE.InfixL (BinOpExpr BitOrOP <$ symbol "|")
-    ]
-  , [
-    CE.InfixL (BinOpExpr AndOP <$ symbol "&&")
-    ]
-  , [
-      CE.InfixL (BinOpExpr OrOP <$ symbol "||")
-    ]
-  ]
-
-
-reductionExpr :: Parser ExpressionTl
-reductionExpr = do
-  a <- oDbg "redu-ident" qualifiedIdent
-  b <- oDbg "redu-args" $ M.optional $ M.try (many expressionFd)
-  pure $ ReductionExpr a (fromMaybe [] b)
-
-
-{- Utilities for parsing: -}
-spaceF :: Parser ()
-spaceF = L.space M.space1 lineCmnt blockCmnt
-  where
-    lineCmnt  = L.skipLineComment "--"
-    blockCmnt = L.skipBlockComment "{-" "-}"
-
-
-lexeme :: Parser a -> Parser a
-lexeme = L.lexeme spaceF
-
-
-symbol :: BS.ByteString -> Parser BS.ByteString
-symbol = L.symbol spaceF
-
-
-endOfStmt :: Parser BS.ByteString
-endOfStmt = symbol "\n" <|> symbol ";"
-
-stringLiteral :: Parser BS.ByteString
-stringLiteral = BS.pack <$> quoted (many stringChar)
-  where
-    stringChar = M.char (Bi.c2w '\\') *> M.anySingle <|> M.noneOf [Bi.c2w '"']
-
-
--- | 'parens' parses something between parenthesis.
-
-parens :: Parser a -> Parser a
-parens = M.between (symbol "(") (symbol ")")
-
-curlies :: Parser a -> Parser a
-curlies = M.between (symbol "{") (symbol "}")
-
-quoted :: Parser a -> Parser a
-quoted = M.between (symbol "\"") (symbol "\"")
-
-singleQuoted :: Parser a -> Parser a
-singleQuoted = M.between (M.char (Bi.c2w '\'')) (M.char (Bi.c2w '\''))
-
--- | 'integer' parses an integer.
-
-integer :: Parser Int
-integer = lexeme L.decimal
-
-
-pReservedWord :: BS.ByteString -> Parser ()
-pReservedWord w = M.string w *> M.notFollowedBy M.alphaNumChar *> spaceF
-
-
-identifier :: Parser BS.ByteString
-identifier = (lexeme . M.try) (pChars >>= check)
-  where
-    pChars :: Parser BS.ByteString
-    pChars = BS.pack <$> ((:) <$> M.letterChar <*> many M.alphaNumChar)
-    check :: BS.ByteString -> Parser BS.ByteString
-    check w = if isReservedWord w then
-                fail $ "keyword " ++ show w ++ " cannot be an identifier"
-              else
-                pure w
-
-
-qualifiedIdent :: Parser QualifiedIdent
-qualifiedIdent = do
-  a <- identifier
-  b <- many (symbol "." *> identifier)
-  pure $ a Ne.:| b

@@ -33,6 +33,7 @@ library
       Cannelle.Compiler.Functions
       Cannelle.Compiler.Types
       Cannelle.Compiler.Variables
+      Cannelle.FileUnit.Exec
       Cannelle.FileUnit.InOut
       Cannelle.FileUnit.Types
       Cannelle.Fuddle.AST
@@ -82,8 +83,13 @@ library
       Cannelle.React.Print
       Cannelle.React.Types
       Cannelle.Templog.AST
+      Cannelle.Templog.Compiler.Context
+      Cannelle.Templog.Compiler.GramParser
       Cannelle.Templog.Compiler.PhaseA
-      Cannelle.Templog.Compiler.PhaseB
+      Cannelle.Templog.Compiler.PhaseC
+      Cannelle.Templog.Compiler.PhaseD
+      Cannelle.Templog.Compiler.Types
+      Cannelle.Templog.Exec
       Cannelle.Templog.Parse
       Cannelle.Templog.Parser
       Cannelle.Templog.Print

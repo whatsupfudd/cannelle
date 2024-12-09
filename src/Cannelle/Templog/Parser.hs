@@ -5,7 +5,7 @@ module Cannelle.Templog.Parser where
 
 import Control.Monad ( forM_, when )
 import Control.Monad.Cont (foldM)
-
+import Control.Monad.State (State, runState)
 import qualified Data.ByteString as BS
 import Data.Either (fromLeft, fromRight)
 import qualified Data.Text.Encoding as TE
@@ -19,86 +19,71 @@ import TreeSitter.Haskell ( tree_sitter_haskell )
 import TreeSitter.Node (  Node(..), TSPoint(TSPoint, pointRow, pointColumn) )
 import TreeSitter.Language (symbolToName, fromTSSymbol)
 
-import Cannelle.Common.Error (CompError (..))
-import qualified Cannelle.Templog.Compiler.PhaseA as Pa
-import qualified Cannelle.Templog.Compiler.PhaseB as Pb
+import Cannelle.Common.Error (CompError (..), splitResults)
 import Cannelle.FileUnit.Types (FileUnit)
 import qualified Cannelle.VM.Context as Vm
+import Cannelle.Compiler.ConstantPool (fusePartA, fusePartB)
 
-import Cannelle.Templog.Types
+import qualified Cannelle.Templog.Compiler.PhaseA as Pa
+import qualified Cannelle.Templog.Compiler.PhaseC as Pb
+import qualified Cannelle.Templog.Compiler.PhaseD as Pd
+
+import Cannelle.Templog.Compiler.Context (initCompContext)
+import Cannelle.Templog.AST
 
 
-compileParseBlocks :: Bool -> FilePath -> BS.ByteString -> TemplTsTree -> IO (Either CompError FileUnit)
-compileParseBlocks debugMode codeName fileContent tsTree =
+compileCodeSegments :: Bool -> FilePath -> BS.ByteString -> [CodeSegment] -> IO (Either CompError FileUnit)
+compileCodeSegments debugMode codeName fileContent segments =
   let
     linesList = BS.split 10 fileContent
     lines = Vc.fromList linesList
-  in do
-  rezA <- mapM (\b ->
-    let
-      blockText = getBlockContent lines b
-    in do
-      -- putStrLn $ "@[compileParseBlocks] block: " ++ show b
-      -- putStrLn $ "@[compileParseBlocks] content: " ++ show blockText
-      case b of
-        Logic _ -> do
-          parseRez <- Pa.parseLogicBlock (startPos b) codeName blockText
-          case parseRez of
-            Left err -> pure $ Left err
-            Right stmts -> pure $ Right stmts
-        Verbatim _ ->
-          let
-            parseRez = Pa.parseVerbatimBlock blockText
-          in
-          pure $ parseRez
-    ) tsTree.blocks
-  let
-    (lefts, rights) = foldl eiSplit ([], []) rezA
-  if null lefts then
-    case Pa.astBlocksToTree (fromRight [] $ sequence rights) of
-      Left err -> pure $ Left err
-      Right astTree -> do
-        -- putStrLn $ "@[compileParseBlocks] ast blocks: " ++ show (sequence rights)
-        -- putStrLn $ "@[compileParseBlocks] ast tree: " ++ show astTree
-        -- TODO: load prelude modules and pass to compileAstTree.
-        -- TODO: scan the AST for qualifed identifiers, load the module & term definitions, and also pass to compileAstTree.
-        rezComp <- Pb.compile debugMode codeName [astTree]
-        case rezComp of
-          Left err -> pure $ Left err
-          Right fileUnit -> pure $ Right fileUnit
-  else
-    let
-      combinedErrs = foldl (\accum lErr ->
-          case lErr of
-            Left (CompError errors) ->
-              foldr (\(lineNbr, msg) innerAccum ->
-                  innerAccum <> [ (lineNbr, msg) ]
-                ) accum errors
-            _ -> (0, "Unexpected right value: " <> show lErr) : accum
-          ) [] lefts
-    in
-    pure . Left $ CompError combinedErrs
+    (errs, segmentsA) = splitResults $ map (\aSegment ->
+        let
+          sText = getSegmentText lines aSegment
+        in do
+          -- putStrLn $ "@[compileCodeSegments] block: " ++ show b
+          -- putStrLn $ "@[compileCodeSegments] content: " ++ show blockText
+          case aSegment.content of
+            LogicSC -> Pa.parseLogicSegment codeName aSegment sText
+            VerbatimSC -> Right $ aSegment { content = StatementPA $ VerbatimAT sText }
+      ) segments
+  in
+  case errs of
+    Nothing -> let
+        (eiRezA, rezContext) = runState (Pa.phaseAtoB segmentsA) (initCompContext "$topOfModule")
+      in 
+      case eiRezA of
+        Left err -> pure . Left $ err
+        Right stmtsB ->
+          -- putStrLn $ "@[compileCodeSegments] ast blocks: " ++ show (sequence rights)
+          -- putStrLn $ "@[compileCodeSegments] ast tree: " ++ show astTree
+          -- TODO: load prelude modules and pass to compileAstTree.
+          -- TODO: scan the AST for qualifed identifiers, load the module & term definitions, and also pass to compileAstTree.
+          case fusePartA rezContext >>= fusePartB of
+            Left err -> pure . Left $ err
+            Right consolidatedCtxt ->
+              let
+                (eiRezB, rezBContext) = runState (Pb.phaseC debugMode stmtsB) consolidatedCtxt
+              in
+              case eiRezB of
+                Left err -> pure . Left $ err
+                Right fileUnit -> Pd.contextToFileUnit codeName rezBContext
+    Just err -> pure . Left $ err
   where
-    eiSplit :: ([Either a b], [Either a b]) -> Either a b -> ([Either a b], [Either a b])
-    eiSplit (lefts, rights) eiItem =
-      case eiItem of
-        Left err -> (lefts <> [eiItem], rights)
-        Right aCode -> (lefts, rights <> [eiItem])
+  eiSplit :: ([Either a b], [Either a b]) -> Either a b -> ([Either a b], [Either a b])
+  eiSplit (lefts, rights) eiItem =
+    case eiItem of
+      Left err -> (lefts <> [eiItem], rights)
+      Right aCode -> (lefts, rights <> [eiItem])
+
+  intStartPos :: CodeSegment -> (Int, Int)
+  intStartPos segment = (fromIntegral segment.pos.start.pointRow, fromIntegral segment.pos.start.pointColumn)
 
 
-startPos :: ParseBlock -> (Int, Int)
-startPos pBlock =
-  case pBlock of
-    Verbatim (pA, _) -> (fromIntegral pA.pointRow, fromIntegral pA.pointColumn)
-    Logic (pA, _) -> (fromIntegral pA.pointRow, fromIntegral pA.pointColumn)
-
-
-getBlockContent :: Vc.Vector BS.ByteString -> ParseBlock -> BS.ByteString
-getBlockContent lines pBlock =
+getSegmentText :: Vc.Vector BS.ByteString -> CodeSegment -> BS.ByteString
+getSegmentText lines segment =
   let
-    (TSPoint rA cA, TSPoint rB cB) = case pBlock of
-        Verbatim (pA, pB) -> (pA, pB)
-        Logic (pA, pB) -> (pA, pB)
+    (SegLoc (TSPoint rA cA) (TSPoint rB cB)) = segment.pos
     eleLength = fromIntegral $ cB - cA + 1
     startPos = fromIntegral cA
     endPos = fromIntegral cB

@@ -1,6 +1,6 @@
 module Cannelle.Templog.Parse where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, when)
 import qualified Data.ByteString as Bs
 import Data.Text (pack)
 import qualified Data.Text.Encoding as T
@@ -15,7 +15,7 @@ import Foreign.Storable ( peek, peekElemOff, poke )
 
 import TreeSitter.Parser ( ts_parser_new, ts_parser_parse_string, ts_parser_set_language, Parser )
 import TreeSitter.Tree ( ts_tree_root_node_p )
-import TreeSitter.Node ( nodeStartPoint ,ts_node_copy_child_nodes, Node(..)
+import TreeSitter.Node ( nodeStartPoint,ts_node_copy_child_nodes, Node(..)
               , TSPoint(TSPoint, pointRow, pointColumn) )
 import TreeSitter.Haskell ( tree_sitter_haskell )
 
@@ -23,36 +23,36 @@ import Cannelle.Common.Error ( CompError )
 import Cannelle.Common.TsAST (tryParseFromContent)
 import qualified Cannelle.FileUnit.Types as Fu
 
-import Cannelle.Templog.Types
-import Cannelle.Templog.Parser (compileParseBlocks)
+import Cannelle.Templog.AST
+import Cannelle.Templog.Parser (compileCodeSegments)
 
 
-parse :: FilePath -> IO (Either CompError Fu.FileUnit)
-parse path = do
+parse :: Bool -> FilePath -> IO (Either CompError Fu.FileUnit)
+parse rtOpts path = do
   putStrLn $ "@[tsParseTemplog] parsing: " ++ path
   content <- Bs.readFile path
-  parseFromContent True path content Nothing
+  parseFromContent rtOpts path content Nothing
 
 
 parseFromContent :: Bool -> FilePath -> Bs.ByteString -> Maybe FilePath -> IO (Either CompError Fu.FileUnit)
 parseFromContent debugMode filePath content mbOutPath = do
   parser <- ts_parser_new
   ts_parser_set_language parser tree_sitter_haskell
-  rezA <- tryParseFromContent debugMode parser parseAst filePath content
+  rezA <- tryParseFromContent debugMode parser tsNodeToSegments filePath content
   case rezA of
     Left err -> pure $ Left err
-    Right tsTree ->
-      if tsTree.hasLogic then do
+    Right (segments, hasLogic) ->
+      if hasLogic then do
           -- parse the blocks to create a VM code.
           {-
           putStrLn $ "@[printChildren] >>>"
           printChildren children childCount 0
           putStrLn $ "@[printChildren] <<<"
           -}
-          eicompiRez <- compileParseBlocks debugMode filePath content tsTree
-          case eicompiRez of
+          rezA <- compileCodeSegments debugMode filePath content segments
+          case rezA of
             Left err -> do
-              putStrLn "@[tsParseFile] compileParseBlocks err: "
+              putStrLn "@[tsParseFile] compileCodeSegments err: "
               print err
               pure $ Left err
             Right fileUnit -> do
@@ -69,31 +69,31 @@ parseFromContent debugMode filePath content mbOutPath = do
         }
 
 
-parseAst :: Bool -> Ptr Node -> Int -> IO (Either CompError TemplTsTree)
-parseAst debugMode children count = do
+tsNodeToSegments :: Bool -> Ptr Node -> Int -> IO (Either CompError ([CodeSegment], Bool))
+tsNodeToSegments debugMode children count = do
   -- algo: do the descent of ts nodes and extract into verbatim and logic blocks; parse the syntax of each logic block, reassemble into a tree of statements/expressions.
-  (blocks, hasLogic) <- analyzeChildren children count
+  (segments, hasLogic) <- tsNodeListToSegments children count
   -- TODO: consolidate the blocks.
-  condensedBlocks <-
+  condensedSegments <-
     if hasLogic then do
       -- putStrLn $ "@[parseTsChildren] has logic blocks."
-      pure $ mergePBlocks blocks
+      pure $ mergeSegments segments
     else
       let
-        (min, max) = foldl (\(minP, maxP) block ->
-          case block of
-            Verbatim (pA, pB) -> (minTsP minP pA, maxTsP maxP pB)
-            Logic (pA, pB) -> (minP, maxP)  -- this should never happen...
-          ) (TSPoint 0 0, TSPoint 0 0) blocks
+        (min, max) = foldl (\(minP, maxP) aSegment ->
+          case aSegment.content of
+            VerbatimSC -> (minTsP minP aSegment.pos.start, maxTsP maxP aSegment.pos.end)
+            _ -> (minP, maxP)  -- this should never happen...
+          ) (TSPoint 0 0, TSPoint 0 0) segments
         in do
           -- putStrLn $ "@[parseTsChildren] single verbatim, min: " ++ show min ++ ", max: " ++ show max
-          pure [Verbatim (min, max)]
-  {-
+          pure [CodeSegment { pos = SegLoc min max, content = VerbatimSC }]
+  {--
   when hasLogic $ do
-    putStrLn $ "@[parseTsChildren] blocks: " ++ show blocks
-    putStrLn $ "@[parseTsChildren] condensed: " ++ show condensedBlocks
-  -}
-  pure $ Right $ TemplTsTree hasLogic condensedBlocks
+    putStrLn $ "@[parseTsChildren] blocks: " ++ show segments
+    putStrLn $ "@[parseTsChildren] condensed: " ++ show condensedSegments
+  --}
+  pure . Right $ (condensedSegments, hasLogic)
 
 
 minTsP :: TSPoint -> TSPoint -> TSPoint
@@ -108,41 +108,49 @@ maxTsP (TSPoint r1 c1) (TSPoint r2 c2)
   | otherwise = TSPoint r2 c2
 
 
-mergePBlocks :: [ParseBlock] -> [ParseBlock]
-mergePBlocks =
+mergeSegments :: [CodeSegment] -> [CodeSegment]
+mergeSegments =
   reverse . foldl (\accum b ->
-      case b of
-        Logic (pA, pB) ->
+      case b.content of
+        LogicSC ->
           case accum of
-            [] -> if pA == TSPoint 0 0 then
+            [] -> if b.pos.start == TSPoint 0 0 then
                     [ b ]
                   else
-                    [ Logic (TSPoint 0 0, pB) ]
-            Verbatim (p1A, p1B) : rest ->
-              if p1B.pointRow < pred pB.pointRow then
-                b : Verbatim (p1A, TSPoint (pred pB.pointRow) 0) : rest
+                    [ CodeSegment { pos = SegLoc (TSPoint 0 0) b.pos.end, content = LogicSC } ]
+            prevSeg@(CodeSegment _ VerbatimSC) : rest ->
+              if prevSeg.pos.end.pointRow < pred b.pos.end.pointRow then
+                b : CodeSegment { pos = SegLoc prevSeg.pos.start (TSPoint (pred b.pos.end.pointRow) 0), content = VerbatimSC } : rest
               else
                 b : accum
             _ -> b : accum
-        Verbatim (pA, pB) ->
+        VerbatimSC ->
           case accum of
-            [] -> if pA == TSPoint 0 0 then
+            [] -> if b.pos.start == TSPoint 0 0 then
                     [ b ]
                   else
-                    [ Verbatim (TSPoint 0 0, pB) ]
-            Verbatim (p1A, p1B) : rest ->
+                    [ CodeSegment { pos = SegLoc (TSPoint 0 0) b.pos.end, content = VerbatimSC } ]
+            prevSeg@(CodeSegment _ VerbatimSC) : rest ->
               case rest of
-                Logic (p2A, p2B) : _ ->
-                  if pA.pointRow > p2A.pointRow || (pA.pointRow == p2A.pointRow && pA.pointColumn > p2A.pointColumn) then
-                    Verbatim (minTsP p1A pA, maxTsP p1B pB) : rest
+                prevPS@(CodeSegment _ LogicSC) : _ ->
+                  if b.pos.start.pointRow > prevPS.pos.start.pointRow
+                     || (
+                          b.pos.start.pointRow == prevPS.pos.start.pointRow
+                          && b.pos.start.pointColumn > prevPS.pos.start.pointColumn
+                        ) then
+                    (CodeSegment {
+                        pos = SegLoc (minTsP prevSeg.pos.start b.pos.start) (maxTsP prevSeg.pos.end b.pos.end)
+                        , content = VerbatimSC
+                    }) : rest
                   else
-                    Verbatim (p1A, maxTsP p1B pB) : rest
-                _ -> Verbatim (minTsP p1A pA, maxTsP p1B pB) : rest
-            Logic (p1A, p1B) : rest ->
-              if pA.pointRow == p1A.pointRow && pA.pointColumn > p1B.pointColumn then
-                Verbatim (pA, pB) : accum
+                    (CodeSegment { pos = SegLoc prevSeg.pos.start (maxTsP prevSeg.pos.end b.pos.end), content = VerbatimSC }) : rest
+                _ -> (CodeSegment { pos = SegLoc (minTsP prevSeg.pos.start b.pos.start) (maxTsP prevSeg.pos.end b.pos.end), content = VerbatimSC }) : rest
+            prevSeg@(CodeSegment _ LogicSC) : rest ->
+              if b.pos.start.pointRow == prevSeg.pos.start.pointRow
+                 && b.pos.start.pointColumn > prevSeg.pos.end.pointColumn then
+                b : accum
               else
-                Verbatim (TSPoint p1B.pointRow p1B.pointColumn, pB) : accum
+                (CodeSegment { pos = SegLoc prevSeg.pos.end b.pos.end, content = VerbatimSC }) : accum
     ) []
 
 -- but: une liste de verbatim/logic.
@@ -150,16 +158,16 @@ mergePBlocks =
 --   en descente, on aggrege la pos de depart/courante quand ce n'est pas un bloc,
 --     si c'est un bloc, on termine l'aggregation, ajoute le bloc a la liste,
 --     et recommence le verbatim avec la pos suivante.
-analyzeChildren :: Ptr Node -> Int -> IO ([ParseBlock], Bool)
-analyzeChildren children count =
+tsNodeListToSegments :: Ptr Node -> Int -> IO ([CodeSegment], Bool)
+tsNodeListToSegments children count =
   foldM (\(curBlocks, curLogicF) index -> do
-      (childBlocks, logicF) <- analyzChild children index
+      (childBlocks, logicF) <- tsNodeToSegment children index
       pure (curBlocks <> childBlocks, curLogicF || logicF)
-    ) ([] :: [ParseBlock], False) [0 .. count - 1]
+    ) ([] :: [CodeSegment], False) [0 .. count - 1]
 
 
-analyzChild :: Ptr Node -> Int -> IO ([ParseBlock], Bool)
-analyzChild children pos = do
+tsNodeToSegment :: Ptr Node -> Int -> IO ([CodeSegment], Bool)
+tsNodeToSegment children pos = do
   child <- peekElemOff children pos
   -- analyze child's children:
   (childrenBlocks, childrenLogicF) <- case fromIntegral child.nodeChildCount of
@@ -169,7 +177,7 @@ analyzChild children pos = do
       tsNodeMem <- malloc
       poke tsNodeMem child.nodeTSNode
       ts_node_copy_child_nodes tsNodeMem subChildren
-      rezA <- analyzeChildren subChildren subCount
+      rezA <- tsNodeListToSegments subChildren subCount
       -- TODO: verify if the subChildren entries need to be freed before the array holder itself is freed.
       free subChildren
       free tsNodeMem
@@ -180,5 +188,5 @@ analyzChild children pos = do
       pB = child.nodeEndPoint
 
   case blockName of
-    "dantempl" -> pure (childrenBlocks <> [Logic (pA, pB)], True)
-    _ -> pure (childrenBlocks <> [ Verbatim (pA, pB) ], childrenLogicF)
+    "dantempl" -> pure (childrenBlocks <> [CodeSegment { pos = SegLoc pA pB, content = LogicSC }], True)
+    _ -> pure (childrenBlocks <> [CodeSegment { pos = SegLoc pA pB, content = VerbatimSC }], childrenLogicF)

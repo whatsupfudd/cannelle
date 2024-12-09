@@ -4,6 +4,7 @@ module Cannelle.VM.OpImpl.PartA where
 
 import Control.Monad (foldM)
 
+import qualified Data.ByteString as Bs
 import Data.Char (chr)
 import Data.Int (Int32)
 import qualified Data.List.NonEmpty as Ne
@@ -140,7 +141,7 @@ reduce context frame opWithArgs =
       -- the essential spit fct: pop last element from stack, sent it to output stream.
       let
         eiDerefStr = S.popString context frame
-      in
+      in        
       case eiDerefStr of
           Left (StackError aMsg) -> pure . Left $ StackError ("@[reduce] spitString, popString err: " <> aMsg)
           Right (newFrame, aStr, isQuoted) ->
@@ -271,23 +272,21 @@ reduce context frame opWithArgs =
 arrConcat :: OpImpl
 arrConcat context frame opWithArgs =
   let
-    eiFstStr = S.popString context frame
-    eiSndStr = case eiFstStr of
-      Left (StackError aMsg) -> Left (StackError ("In ARR_CONCAT, 2nd value: " <> aMsg))
+    eiFstVal = S.popString context frame
+    eiSndVal = case eiFstVal of
+      Left (StackError aMsg) -> Left (StackError ("In ARR_CONCAT, 1st value: " <> aMsg))
       Right (fstFrame, fstStr, _) -> case S.popString context fstFrame of
         Left (StackError aMsg) -> Left (StackError ("In ARR_CONCAT, 2nd value: " <> aMsg))
         Right (sndFrame, sndStr, _) -> Right (sndFrame, (fstStr, sndStr))
   in
-  case eiSndStr of
+  case eiSndVal of
     Left err -> pure $ Left err
-    Right (postFrame, (fstStr, sndStr)) ->
+    Right (postFrame, (fstVal, sndVal)) ->
       let
-        concatStr = sndStr <> fstStr -- operand positions are reversed in the stack.
-        heapPos = fromIntegral $ V.length frame.heap
-        newHeap = frame.heap V.++ V.singleton (StringHE concatStr)
-        newStack = (HeapRefSV, heapPos) : postFrame.stack
+        concatStr = sndVal <> fstVal -- operand positions are reversed in the stack.
+        (updFrame, newHeapID) = H.addFrameHeapEntry postFrame (StringHE concatStr)
       in
-      pure $ Right (context, postFrame { stack = newStack, heap = newHeap }, ContinueVO)
+      pure $ Right (context, S.push updFrame (HeapRefSV, newHeapID), ContinueVO)
 
 halt :: OpImpl
 halt context frame opWithArgs =
@@ -434,14 +433,12 @@ callMethod context frame opWithArgs =
               HeapRefSV ->
                 pure $ Right (context, S.push newFrame (aKind, aValue), ContinueVO)
               GlobalHeapRefSV -> do
-                putStrLn $ "@[op:callMethod] faking method call: " <> show (aKind, aValue)
+                putStrLn $ "@[op:callMethod] method call, no arg: " <> show (aKind, aValue)
                 case H.getFromHeap context aValue of
                   Just aHeapValue -> case aHeapValue of
                     ClosureHE aFctID ->
                       -- TODO: find the function in the context.
-                      case aFctID of
-                        6 -> pure $ Right (context, S.push newFrame (BoolSV, 0), ContinueVO)
-                        _ -> pure . Left $ StackError ("[@callMethod] GlobalHeapRefSV err, no function at " <> show aFctID <> ".")
+                      fakeMethodCall aFctID context newFrame opWithArgs
                     _ -> pure . Left $ StackError ("[@callMethod] GlobalHeapRefSV err, got unexpected value: " <> show aHeapValue <> ".")
                   Nothing -> pure . Left $ StackError ("@[op:callMethod] no heap value at " <> show aValue)
               _ ->
@@ -457,7 +454,7 @@ callMethod context frame opWithArgs =
             case args of
               Left err -> pure $ Left err
               Right (newFrame, argValues) -> do
-                putStrLn $ "@[op:callMethod] faking method call with args: " <> show argValues
+                putStrLn $ "@[op:callMethod] method call, args: " <> show argValues
                 -- TODO: find the function in the context.
                 case recKind of
                   GlobalHeapRefSV ->
@@ -475,12 +472,45 @@ callMethod context frame opWithArgs =
                     pure . Left $ StackError ("[@callMethod] stack err, got kind: " <> show recKind <> ".")
 
 
+{-
+    ("hasWebServer", C.ClosureHE 100)  -- C.BoolHE True
+    , ("jwkDefaultLocation", C.ClosureHE 101)  -- C.StringHE "~/.fudd/jwk.json"
+    , ("serverPortDefault", C.ClosureHE 102)  -- C.IntHE 8080
+    , ("appName", C.ClosureHE 103)  -- C.StringHE "newapp"
+    , ("appConfEnvVar", C.ClosureHE 104)  -- C.StringHE "TEMPLOG_CONF"
+-}
+fakeMethodCall :: Int32 -> OpImpl
+fakeMethodCall funcID context frame opWithArgs =
+  case funcID of
+    6 -> pure $ Right (context, S.push frame (BoolSV, 0), ContinueVO)
+    100 -> pure $ Right (context, S.push frame (BoolSV, 1), ContinueVO)
+    101 ->
+      let
+        (updFrame, newValue) = H.addFrameHeapEntry frame (StringHE "~/.fudd/jwk.json")
+      in
+      pure $ Right (context, S.push updFrame (HeapRefSV, newValue), ContinueVO)
+    102 -> pure $ Right (context, S.push frame (IntSV, 8080), ContinueVO)
+    103 ->
+      let
+        (updFrame, newValue) = H.addFrameHeapEntry frame (StringHE "newapp")
+      in
+      pure $ Right (context, S.push updFrame (HeapRefSV, newValue), ContinueVO)
+    104 ->
+      let
+        (updFrame, newValue) = H.addFrameHeapEntry frame (StringHE "TEMPLOG_CONF")
+      in
+      pure $ Right (context, S.push updFrame (HeapRefSV, newValue), ContinueVO)
+    _ -> pure . Left $ StackError ("[@fakeMethodCall] no fake method at " <> show funcID <> ".")
+
+
+
 forceToString :: OpImpl
 forceToString context frame opWithArgs =
   -- force a value to a string.
   case S.pop frame of
     Left (StackError aMsg) -> pure . Left $ StackError ("[@forceToString] stack err: " <> aMsg)
-    Right (newFrame, stackVal@(aKind, aValue)) ->
+    Right (newFrame, stackVal@(aKind, aValue)) -> do
+      putStrLn $ "@[op:forceToString] stackVal: " <> show stackVal
       case aKind of
         ConstantRefSV ->
           case context.constants V.!? fromIntegral aValue of
@@ -488,11 +518,18 @@ forceToString context frame opWithArgs =
               StringCte aStr -> pure $ Right (context, S.push newFrame stackVal, ContinueVO)
               _ -> pure . Left $ StackError ("[@forceToString] ConstantRefSV err, got unexpected constant: " <> show aCteValue <> ".")
             Nothing -> pure . Left $ StackError ("[@forceToString] ConstantRefSV err, nothing at " <> show aValue <> ".")
-        StringSV ->
+        StringSV -> do
           pure $ Right (context, S.push newFrame stackVal, ContinueVO)
+        IntSV ->
+          let
+            (updFrame, newValue) = H.addFrameHeapEntry newFrame (StringHE . T.encodeUtf8 . T.pack $ show aValue)
+          in do
+          putStrLn $ "@[op:forceToString] int: " <> show (aKind, aValue) <> ", heapValue: " <> show newValue
+          pure $ Right (context, S.push updFrame (HeapRefSV, newValue), ContinueVO)
         HeapRefSV ->
           case newFrame.heap V.!? fromIntegral aValue of
-            Just aHeapValue ->
+            Just aHeapValue -> do
+              putStrLn $ "@[op:forceToString] heapVal: " <> show aHeapValue
               case aHeapValue of
                 StringHE aStr ->
                   pure $ Right (context, S.push newFrame stackVal, ContinueVO)
@@ -524,3 +561,18 @@ forceToString context frame opWithArgs =
                   pure . Left $ StackError ("[@forceToString] HeapRefSV err, got unexpected value: " <> show aHeapValue <> ".")
         _ ->
           pure . Left $ StackError ("[@forceToString] stack err, got kind: " <> show aKind <> ".")
+
+
+intAdd :: OpImpl
+intAdd context frame opWithArgs =
+  let
+    eiTwoVals = S.pop2 frame
+  in
+  case eiTwoVals of
+    Left err -> pure $ Left err
+    Right (postFrame, (fstVal, sndVal)) ->
+      case (fstVal, sndVal) of
+        ((IntSV, fstInt), (IntSV, sndInt)) ->
+          pure $ Right (context, S.push postFrame (IntSV, fstInt + sndInt), ContinueVO)
+        _ ->
+          pure . Left $ StackError ("[@intAdd] stack err, got kind: " <> show fstVal <> " and " <> show sndVal <> ".")

@@ -33,6 +33,7 @@ implementedOpCodes = [
   , (fromEnum $ STORE_HEAP 0, heapStore)
   , (fromEnum $ CALL_METHOD 0, callMethod)
   , (fromEnum FORCE_TO_STRING, forceToString)
+  , (fromEnum IADD, intAdd)
   ]
 
 

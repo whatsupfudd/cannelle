@@ -46,8 +46,9 @@ import Cannelle.Jinja.Html
 import Cannelle.Jinja.Parse (ParserError (..), SourcePos (..), sourceName, sourceLine, sourceColumn, parseGingerFile, parseGinger, formatParserError)
 
 import qualified Cannelle.Hugo.Parse as Hg
-import qualified Cannelle.Hugo.Exec as Hg
+import qualified Cannelle.Hugo.Exec as He
 import qualified Cannelle.Templog.Parse as Tp
+import qualified Cannelle.Templog.Exec as Te
 import qualified Cannelle.Fuddle.Parse as Fd
 
 import qualified Cannelle.PHP.Parse as Ph
@@ -71,7 +72,7 @@ main = do
           Jinja -> runJinja tpl dat
           Hugo -> runHugo tpl dat mbOut
           PHP -> runPHP tpl dat
-          Templog -> runTemplog tpl dat
+          Templog -> runTemplog (rtOpts == 1) tpl dat
           Tsx -> runTsx rtOpts tpl dat
           Fuddle -> runFuddle rtOpts tpl dat
 
@@ -141,7 +142,7 @@ runHugo tplSrc dataSrc mbOut = do
         Left err -> putStrLn err
         Right fileUnit -> do
           putStrLn $ "@[runHugo] fileUnit:\n" <> Fio.showFileUnit fileUnit
-          Hg.exec fileUnit
+          He.execTest fileUnit
     TemplateFromStdin -> do
       text <- encodeUtf8 . pack <$> getContents
       let
@@ -165,15 +166,16 @@ runPHP tplSrc dataSrc = do
   pure ()
 
 
-runTemplog :: TemplateSource -> DataSource -> IO ()
-runTemplog tplSrc dataSrc = do
+runTemplog :: Bool -> TemplateSource -> DataSource -> IO ()
+runTemplog rtOpts tplSrc dataSrc = do
   rezA <- case tplSrc of
     TemplateFromFile fn -> do
-      rezA <- Tp.parse fn
+      rezA <- Tp.parse rtOpts fn
       case rezA of
         Left err -> pure $ Left (show err)
         Right fileUnit -> do
           putStrLn $ "@[runTemplog] fileUnit:\n" <> Fio.showFileUnit fileUnit
+          Te.execTest fileUnit
           pure $ Right fileUnit
     TemplateFromStdin ->
       pure . Left $ "@[runTemplog] TemplateFromStdin not supported yet."
