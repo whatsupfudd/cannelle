@@ -314,15 +314,17 @@ jsxAttributeG indent (mbIdx, mbAttr) = do
           rezA <- getStringValue strVal
           case rezA of
             Left err -> pure . Left $ "@[jsxAttributeG] StringAT error: " <> err
-            Right aText ->
-              case mbAttribName of
-                Just attribName ->
-                  pure . Right $ attribName <> " = " <> aText
-                Nothing ->
-                  pure . Right $ aText
+            Right aText -> 
+              pure . Right $ maybe "" (\an -> tsxAttribToElm an <> " ") mbAttribName <> aText
     Nothing ->
       pure . Left $ "@[jsxAttributeG] no attribute!"
 
+tsxAttribToElm :: Bs.ByteString -> Bs.ByteString
+tsxAttribToElm attribName =
+  case attribName of
+    "className" -> "class"
+    "htmlFor" -> "for"
+    _ -> attribName
 
 instanceValueG :: Int -> InstanceValue -> ElmRef (Either String Bs.ByteString)
 instanceValueG indent value = do
