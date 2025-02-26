@@ -65,7 +65,19 @@ showNodeCap level capCount nodes =
 
 
 fetchContent :: V.Vector Bs.ByteString -> (SegmentPos, Int) -> String
-fetchContent cLines ((start, end), lineNum) =
+fetchContent cLines (sPos@(start, end), lineNum) =
+  let
+    mainText = fetchContentRaw cLines sPos
+    startLine = fromIntegral start.pointRow
+    startCol = fromIntegral start.pointColumn
+    endLine = fromIntegral end.pointRow
+    endCol = fromIntegral end.pointColumn
+  in
+  show lineNum <> " (" <> show startLine <> "," <> show startCol <> ")-(" <> show endLine <> "," <> show endCol <> "): " <> (unpack . decodeUtf8) mainText <> "\n"
+
+
+fetchContentRaw :: V.Vector Bs.ByteString -> SegmentPos -> Bs.ByteString
+fetchContentRaw cLines (start, end) =
   let
     startLine = fromIntegral start.pointRow
     startCol = fromIntegral start.pointColumn
@@ -93,4 +105,4 @@ fetchContent cLines ((start, end), lineNum) =
                     in
                     prefix <> middle <> "\n" <> postfix
   in
-  show lineNum <> " (" <> show startLine <> "," <> show startCol <> ")-(" <> show endLine <> "," <> show endCol <> "): " <> (unpack . decodeUtf8) mainText <> "\n"
+  mainText

@@ -17,6 +17,10 @@ data ReactContext = ReactContext {
 {-
 TSX statements are a superset of the following ECMAScript grammar:
 Top level constructs:
+top-level			::= statement
+				 | function-declaration
+				 | class-declaration
+         
 function-declaration		::= [ "async" ] "function" identifier function-params-postfix compound-statement
 class-declaration		::= "class" identifier [ "extends" comma-separated-expressions ] class-body
 class-body			::= '{' { class-member } '}'
@@ -123,6 +127,11 @@ multiplicative-binary-expression ::= unary-expression '*' multiplicative-binary-
 				 | unary-expression '/' multiplicative-binary-expression
 				 | unary-expression '%' multiplicative-binary-expression
 				 | unary-expression "**" multiplicative-binary-expression
+
+-- Missing:
+declaration-statement ::= ( "var" | "let" | "const" | "static" ) lvalue '=' expression [ ';' ]
+
+
 -}
 
 data TsxTopLevel =
@@ -185,10 +194,17 @@ data TsxStatement =
   | ImportST Bool (Maybe ImportKind) StringValue
   | ReturnST (Maybe TsxExpression)
   -- Where is this in the grammar?
-  | LexicalDeclST Bool VarDecl
+  | LexicalDeclST VarKind VarDecl
   | FunctionDeclST TsxExpression      -- Always a FunctionDefEX.
   -- Warning, duplicates the CommentEX...
   | CommentST Int
+  deriving Show
+
+
+data VarKind =
+  ConstVK
+  | LetVK
+  | VarVK
   deriving Show
 
 data VarDecl =
@@ -273,7 +289,7 @@ data MemberPrefix =
 
 data JsxElement =
   SelfClosingJex [Identifier] [(Maybe Int, Maybe JsxAttribute)]
-  | JsxElement JsxOpening [JsxElement] (Maybe JsxClosing)
+  | ElementJex JsxOpening [JsxElement] (Maybe JsxClosing)
   | ExpressionJex JsxTsxExpr
   | TextJex Int
   | HtmlCharRefJex StringFragment
@@ -281,8 +297,8 @@ data JsxElement =
 
 
 data JsxOpening =
-  JsxOpening [Identifier] [(Maybe Int, Maybe JsxAttribute)]
-  | JsxEmptyOpening
+  OpeningJO [Identifier] [(Maybe Int, Maybe JsxAttribute)]
+  | EmptyOpeningJO
   deriving Show
 
 

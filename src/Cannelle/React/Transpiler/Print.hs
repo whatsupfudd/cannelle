@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 {-# LANGUAGE BangPatterns #-}
-module Cannelle.React.Print where
+module Cannelle.React.Transpiler.Print where
 
 import qualified Data.ByteString as Bs
 import qualified Data.Vector as V
@@ -8,40 +8,29 @@ import Data.List (intercalate)
 
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 
-import Cannelle.TreeSitter.Print (fetchContent)
-import Cannelle.React.AST
+import Cannelle.React.Transpiler.AST
+import Cannelle.React.Transpiler.AnalyzeAst
 
 
-printReactContext :: Bs.ByteString -> ReactContext -> IO ()
-printReactContext content ctxt = do
+printAnalyzedAst :: AnalyzeResult -> IO ()
+printAnalyzedAst aResult = do
   startA <- getCurrentTime
-  let
-    cLines = V.fromList $ Bs.split 10 content
-    demandLines = V.map (fetchContent cLines) $ V.zip ctxt.contentDemands (V.fromList [0..])
   endA <- getCurrentTime
   startB <- getCurrentTime
-  putStrLn $ "@[printReactContext] topLevel: " <> showTopLevel (V.toList ctxt.tlElements)
-  putStrLn $ "@[printReactContext] contentDemands: "
+  putStrLn $ "@[printAnalyzedAst] topLevel: " <> showTopLevel (V.toList aResult.topElements)
+  putStrLn "\n@[printAnalyzedAst] contentDemands: "
   endB <- getCurrentTime
   startC <- getCurrentTime
-  V.mapM_ putStrLn demandLines
+  V.mapM_ putStrLn (V.zipWith (\i s -> show i <> ": " <> show s) (V.fromList [0..]) aResult.strings)
   endC <- getCurrentTime
-  putStrLn $ "@[printReactContext] cLines/demandLines time: " <> show (diffUTCTime endA startA)
-  putStrLn $ "@[printReactContext] showTopLevel time: " <> show (diffUTCTime endB startB)
-  putStrLn $ "@[printReactContext] putStrLn demandLines time: " <> show (diffUTCTime endC startC)
+  putStrLn $ "\n@[printAnalyzedAst] cLines/demandLines time: " <> show (diffUTCTime endA startA)
+  putStrLn $ "@[printAnalyzedAst] showTopLevel time: " <> show (diffUTCTime endB startB)
+  putStrLn $ "@[printAnalyzedAst] putStrLn demandLines time: " <> show (diffUTCTime endC startC)
   where
-  showTopLevel :: [TsxTopLevel] -> String
+  showTopLevel :: [TopLevelNd] -> String
   showTopLevel =
     foldl (\acc action -> acc <> "\n" <> showATopLevel 0 action) ""
 
-
-printContextStats :: ReactContext -> IO ()
-printContextStats ctxt = do
-  startA <- getCurrentTime
-  putStrLn $ "@[printContextStats] # elements: " <> show (V.length ctxt.tlElements)
-  putStrLn $ "@[printContextStats] # contentDemands: " <> show (V.length ctxt.contentDemands)
-  endA <- getCurrentTime
-  putStrLn $ "@[printContextStats] time: " <> show (diffUTCTime endA startA)
 
 {-
 The React AST to display is made of:
@@ -90,12 +79,12 @@ data TsxExpression =
 
 -}
 
-showATopLevel :: Int -> TsxTopLevel -> String
+showATopLevel :: Int -> TopLevelNd -> String
 showATopLevel !level !topLevel =
   let
     indent = replicate (level * 2) ' '
   in
-  case topLevel of
+  case topLevel.tl of
     StatementTL stmt -> indent <> "StatementTL " <> showStatement level stmt
     FunctionDeclTL functionDef -> indent <> "FunctionDeclTL\n" <> showExpression (succ level) functionDef
     ClassDeclTL -> indent <> "ClassDeclTL"
@@ -106,12 +95,12 @@ showATopLevel !level !topLevel =
     _ -> "showATopLevel: unhandled topLevel: " <> show topLevel
 
 
-showStatement :: Int -> TsxStatement -> String
+showStatement :: Int -> StatementNd -> String
 showStatement !level !stmt =
   let
     indent = replicate (level * 2) ' '
   in
-  case stmt of
+  case stmt.stmt of
     CompoundST stmts -> indent <> "CompoundST\n" <> intercalate "\n" (map (showStatement (succ level)) stmts)
     ExpressionST expr -> indent <> "ExpressionST\n" <> showExpression (level + 1) expr
     DeclarationST -> indent <> "DeclarationST"
@@ -134,7 +123,7 @@ showStatement !level !stmt =
         <> case item of
           IdentifierEI ident -> show ident
           FunctionEI func -> "\n" <> showATopLevel (succ level) func
-          TypeEI typeDecl -> "\n" <> showTypeDecl (succ level) typeDecl
+          TypeEI typeDecl -> "\n" <> showTypeDecl (succ level) typeDecl.tl
           LexicalEI stmt -> "\n" <> showStatement (succ level) stmt
           InterfaceEI ident -> show ident
           _ -> "showStatement: unhandled ExportItem: " <> show item
@@ -164,12 +153,12 @@ showTypeDecl !level !typeDecl =
   indent <> "TypeDecl " <> show typeDecl
 
 
-showExpression :: Int -> TsxExpression -> String
+showExpression :: Int -> ExpressionNd -> String
 showExpression !level !expr =
   let
     indent = replicate (level * 2) ' '
   in
-  case expr of
+  case expr.expr of
     TernaryEX cond thenExpr elseExpr -> indent <> "TernaryEX\n"
           <> showExpression (level + 1) cond
           <> "\n" <> showExpression (level + 1) thenExpr
@@ -204,12 +193,12 @@ showExpression !level !expr =
     _ -> "showExpression: unhandled expression: " <> show expr
 
 
-showJsxElement :: Int -> JsxElement -> String
+showJsxElement :: Int -> ElementNd -> String
 showJsxElement !level !expr =
   let
     indent = replicate (level * 2) ' '
   in
-  case expr of
+  case expr.jsxEle of
     ElementJex opening children mbClosing -> indent <> "ElementJex\n"
         <> showJsxOpening (succ level) opening <> "\n"
         <> intercalate "\n" (map (showJsxElement (level + 1)) children) <> "\n" <> indent <> show mbClosing

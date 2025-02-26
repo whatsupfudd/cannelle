@@ -168,5 +168,10 @@ genLitOps lit =
     IntL i -> A.emitOp $ PUSH_INT_IMM (fromIntegral i)
     BoolL b -> A.emitOp $ PUSH_BOOL_IMM b
     CharL c -> A.emitOp $ PUSH_INT_IMM (fromIntegral c)
-    StringL strID -> A.emitOp $ PUSH_CONST strID
+    StringL strID -> do
+      ctxt <- get
+      case Mp.lookup strID ctxt.cteMaps.txtCteMap of
+        Nothing -> pure . Left $ CompError [(0, "@[genLitOps] Text constant not found: " <> show strID)]
+        Just txtCteID -> A.emitOp $ PUSH_CONST txtCteID
     _ -> pure $ Left $ CompError [(0, "@[genLitOps] unimplemented")]
+

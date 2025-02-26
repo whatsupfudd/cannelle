@@ -24,7 +24,7 @@ import qualified Data.Map as Mp
 import Data.Maybe
 import qualified Data.List.NonEmpty as Ne
 import Data.Text (Text, unpack, pack)
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import qualified Data.Vector as V
 
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
@@ -56,6 +56,10 @@ import Cannelle.PHP.Print (printPhpContext)
 
 import qualified Cannelle.React.Parse as Rc
 import Cannelle.React.Print (printReactContext, printContextStats)
+import Cannelle.React.Transpiler.Print (printAnalyzedAst)
+import Cannelle.React.Transpiler.ElmGen (makeElmCode)
+-- TMP:
+import Cannelle.React.Transpiler.AnalyzeAst (analyzeAst, AnalyzeResult (..))
 
 import qualified Cannelle.FileUnit.InOut as Fio
 
@@ -186,12 +190,13 @@ runTemplog rtOpts tplSrc dataSrc = do
 
 runTsx :: Int -> TemplateSource -> DataSource -> IO ()
 runTsx rtOpts tplSrc dataSrc = do
+  putStrLn $ "@[runTsx] rtOpts: " <> show rtOpts <> "\n"
   rezA <- case tplSrc of
     TemplateFromFile fn -> do
       start <- getCurrentTime
       rezB <- Rc.tsParseReact (rtOpts > 0) fn
       end <- getCurrentTime
-      -- putStrLn $ "@[runTsx] tsParseTsx time: " <> show (diffUTCTime end start)
+      putStrLn $ "@[runTsx] tsParseTsx time: " <> show (diffUTCTime end start)
       case rezB of
         Left errMsg ->
           putStrLn $ "@[runTsx] tsParseTsx err: " <> show errMsg
@@ -199,9 +204,19 @@ runTsx rtOpts tplSrc dataSrc = do
           -- putStrLn $ "@[runTsx] ctx: " <> show ctx <> "\n"
           content <- Bs.readFile fn
           putStrLn "\n"
-          -- printTsxContext content ctx
+          let
+            cLines = V.fromList $ Bs.split 10 content
+            aRez = analyzeAst cLines ctx
+          case aRez of
+            Left err -> putStrLn $ "@[runTsx] analyzeAst err: " <> err
+            Right analysis -> do
+              printAnalyzedAst analysis
+              case makeElmCode analysis of
+                Left err -> putStrLn $ "@[runTsx] makeElmCode err: " <> err
+                Right elmCode ->
+                  putStrLn $ "@[runTsx] elmCode:\n" <> (unpack . decodeUtf8 $ elmCode)
+          printReactContext content ctx
           printContextStats ctx
-          putStrLn "\n"
     TemplateFromStdin ->
       putStrLn "@[runTsx] TemplateFromStdin not supported yet."
   pure ()

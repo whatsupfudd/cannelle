@@ -105,7 +105,7 @@ tryParseReactFromContent debugMode parser path content = do
   pure rezA
 
 
--- **** Parsing a TreeSitter's AST for PHP **** --
+-- **** Parsing a TreeSitter's AST for {TS/JS}X **** --
 
 parseTsAst :: Bool -> Ptr Node -> Int -> IO (Either CompError ReactContext)
 parseTsAst debugMode children count = do
@@ -124,7 +124,8 @@ parseTsAst debugMode children count = do
   putStrLn $ "@[parseTsAst] tsxScanner time: " <> show (diffUTCTime end start)
   case scanRez of
     Left err -> pure . Left $ CompError [(0, "@[parseTsAst] testScannerB err: " <> show err)]
-    Right context -> pure $ Right context
+    Right context -> 
+      pure $ Right context
 
   -- testScannerC nodeGraph
   {-

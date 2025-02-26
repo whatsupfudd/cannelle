@@ -81,6 +81,10 @@ library
       Cannelle.React.Parser.Support
       Cannelle.React.Parser.Types
       Cannelle.React.Print
+      Cannelle.React.Transpiler.AnalyzeAst
+      Cannelle.React.Transpiler.AST
+      Cannelle.React.Transpiler.ElmGen
+      Cannelle.React.Transpiler.Print
       Cannelle.React.Types
       Cannelle.Templog.AST
       Cannelle.Templog.Compiler.Context

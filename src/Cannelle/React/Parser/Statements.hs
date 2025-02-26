@@ -33,6 +33,7 @@ statementS = debugOpt "statementS" $ do
       , debugOpt "statementS-exportS" exportS
       , debugOpt "statementS-returnS" returnS
       , debugOpt "statementS-lexicalDeclS" lexicalDeclS
+      , debugOpt "statementS-variableDeclS" variableDeclS
       , CommentST <$> S.symbol "comment"
       , debugOpt "statementS-exprStmtS" exprStmtS
       , debugOpt "statementS-ifS" ifS
@@ -102,6 +103,7 @@ exportItemS = asum [
     , FunctionEI <$> fctDefTopLevelS
     , TypeEI <$> typeDeclS
     , LexicalEI <$> lexicalDeclS
+    , LexicalEI <$> variableDeclS
     , InterfaceEI <$> interfaceDeclS
   ]
 
@@ -266,8 +268,18 @@ returnS = do
 lexicalDeclS :: ScannerP TsxStatement
 lexicalDeclS = do
   S.singleP "lexical_declaration"
-  isConst <- optional $ debugOpt "lexicalDeclS-isConst" (S.single "const")
-  LexicalDeclST (isJust isConst) <$> debugOpt "lexicalDeclS-varDeclS" varDeclS
+  varKind <- asum [
+      S.single "const" $> ConstVK
+      , S.single "let" $> LetVK
+      , S.single "var" $> VarVK
+    ]
+  LexicalDeclST varKind <$> debugOpt "lexicalDeclS-varDeclS" varDeclS
+
+variableDeclS :: ScannerP TsxStatement
+variableDeclS = do
+  S.singleP "variable_declaration"
+  S.single "var"
+  LexicalDeclST VarVK <$> debugOpt "lexicalDeclS-varDeclS" varDeclS
 
 
 varDeclS :: ScannerP VarDecl
@@ -451,7 +463,7 @@ jsxElementS = debugOpt "jsxElementS" $ do
       , debugOpt "jsxElementS-htmlCharRefJexS" $ HtmlCharRefJex <$> htmlCharRefS
      ]
   mbClosing <- optional $ debugOpt "jsxElementS-jsxClosingS" jsxClosingS
-  pure $ JsxElement opening children mbClosing
+  pure $ ElementJex opening children mbClosing
 
 
 jsxOpeningS :: ScannerP JsxOpening
@@ -463,7 +475,7 @@ jsxOpeningS = do
     attribs <- many $ debugOpt "jsxOpeningS-jsxAttributeS" jsxAttributeS
     pure (idents, attribs)
   debugOpt "jsxOpeningS-ending" $ S.single ">"
-  pure $ maybe JsxEmptyOpening (uncurry JsxOpening) mbValues
+  pure $ maybe EmptyOpeningJO (uncurry OpeningJO) mbValues
 
 
 jsxIdentifierS :: ScannerP [Identifier]
