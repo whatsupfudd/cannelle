@@ -224,8 +224,8 @@ jsxElementG indent element =
                         tChildrenStr = rights tChildren
                       in
                       pure . Right $ Bs.intercalate "." tIdentsStr <> "\n"
-                        <> tabS <> "  [" <> Bs.intercalate "," tAttribsStr <> " ]\n"
-                        <> tabS <> "  [\n" <> Bs.intercalate "\n" tChildrenStr <> "\n" <> tabS <> "  ]"
+                        <> tabS <> if null tAttribsStr then "[]" else "  [ " <> Bs.intercalate "," tAttribsStr <> " ]\n"
+                        <> tabS <> if null tChildrenStr then "[]" else "  [\n" <> Bs.intercalate "\n" tChildrenStr <> "\n" <> tabS <> "  ]"
             _ -> pure . Left $ "@[jsxElementG] identifierG error for: " <> show tIdents
     ExpressionJex (JsxTsxExpr expr) -> do
       rezA <- expressionG indent expr
@@ -306,11 +306,20 @@ jsxAttributeG indent (mbIdx, mbAttr) = do
             Right aText ->
               pure . Right $ "{" <> aText <> "}"
         StringAT strVal -> do
+          strings <- asks strings
+          let
+            mbAttribName = case mbIdx of
+              Just idx -> Just $ strings V.! idx
+              Nothing -> Nothing
           rezA <- getStringValue strVal
           case rezA of
             Left err -> pure . Left $ "@[jsxAttributeG] StringAT error: " <> err
             Right aText ->
-              pure . Right $ "{" <> aText <> "}"
+              case mbAttribName of
+                Just attribName ->
+                  pure . Right $ attribName <> " = " <> aText
+                Nothing ->
+                  pure . Right $ aText
     Nothing ->
       pure . Left $ "@[jsxAttributeG] no attribute!"
 
