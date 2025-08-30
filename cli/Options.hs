@@ -8,18 +8,22 @@ import Options.Applicative
 data TemplateSource =
     TemplateFromFile FilePath
   | TemplateFromStdin
+  deriving Show
 
 
 data DataSource =
     DataFromFile FilePath
   | DataLiteral String
   | DataFromStdin
+  deriving Show
 
 
 newtype OutputSpec = OutputSpec FilePath
+  deriving Show
 
 
 data Options = RunOptions Int DataSource TechMode (Maybe OutputSpec) TemplateSource
+  deriving Show
 
 
 data TechMode =
@@ -29,7 +33,8 @@ data TechMode =
   | Fuddle
   | Tsx
   | Templog
-
+  | Haskell
+  deriving Show
 
 parseOptions :: [String] -> IO Options
 parseOptions args =
@@ -45,15 +50,23 @@ options = runOptions
 
 runOptions :: Parser Options
 runOptions =
-  RunOptions <$> debugFlags <*> dataSource <*> actionSpec <*> optional outputSpec <*> templateSource
+  RunOptions <$> debugValue <*> dataSource <*> actionSpec <*> optional outputSpec <*> templateSource <**> helper
 
 
 debugFlags :: Parser Int
 debugFlags =
   flag 0 1 (
       long "debug"
-    <> short 'd'
     <> help "Enable debug mode"
+  )
+
+
+debugValue :: Parser Int
+debugValue =
+  read <$> strOption (
+      long "debug"
+    <> help "Enable debug mode"
+    <> value "0"
   )
 
 outputSpec :: Parser OutputSpec
@@ -115,3 +128,4 @@ techMode =
     <> command "templog" (info (pure Templog) (progDesc "Use the Templog template engine"))
     <> command "tsx" (info (pure Tsx) (progDesc "Use the TypeScript-TSX template engine"))
     <> command "fuddle" (info (pure Fuddle) (progDesc "Use the Fuddle template engine"))
+    <> command "haskell" (info (pure Haskell) (progDesc "Use the Haskell template engine"))

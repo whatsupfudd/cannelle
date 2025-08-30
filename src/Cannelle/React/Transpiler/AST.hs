@@ -30,7 +30,7 @@ data Parameter =
 
 data FieldSpecification =
   SimpleSpecFS Identifier
-  | AssignmentFS Identifier TsxExpression
+  | AssignmentFS Identifier ExpressionNd
   deriving Show
 
 data TypedParameter =
@@ -152,6 +152,7 @@ data TsxExpression =
   | JsxElementEX ElementNd
   | AwaitEX ExpressionNd
   | CommentEX Int
+  | NewEX Identifier [ExpressionNd]
   deriving Show
 
 
@@ -175,9 +176,9 @@ data MemberSelector =
 data MemberPrefix =
   SimpleMemberSel Identifier
   | ComposedMemberSel MemberSelector
-  | CallMemberSel TsxExpression
-  | NonNullSel TsxExpression
-  | SubscriptMemberSel MemberPrefix TsxExpression
+  | CallMemberSel ExpressionNd
+  | NonNullSel ExpressionNd
+  | SubscriptMemberSel MemberPrefix ExpressionNd
   deriving Show
 
 data ElementNd = ElementNd {

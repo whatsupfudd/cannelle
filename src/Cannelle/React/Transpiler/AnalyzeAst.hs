@@ -215,7 +215,7 @@ functionDefD asyncFlag mbIdent params mbType body = do
       mbAType <- case mbType of
         Just aType -> Just <$> typingD aType
         Nothing -> pure Nothing
-      aParams <- mapM paramD params
+      aParams <- mapM typeParamD params
       let
         newFctDef = FunctionDef {
               -- TODO properly:
@@ -230,10 +230,48 @@ functionDefD asyncFlag mbIdent params mbType body = do
 
 
 typingD :: J.TypeAnnotation -> ParseState A.TypeAnnotation
-typingD = undefined
+typingD = \case
+  J.ObjectTypeTA -> pure A.ObjectTypeTA
+  J.ArrayTypeTA -> pure A.ArrayTypeTA
+  J.PredefinedTypeTA aType -> pure $ A.PredefinedTypeTA (convDefinedType aType)
+  J.TypeIdentifierTA idx -> pure $ A.TypeIdentifierTA idx
+  J.NestedTA ident idx -> do
+    aIdent <- identifierD ident
+    pure $ A.NestedTA aIdent idx
+  J.GenericTA -> pure A.GenericTA
 
-paramD :: J.TypedParameter -> ParseState A.TypedParameter
-paramD = undefined
+
+typeParamD :: J.TypedParameter -> ParseState A.TypedParameter
+typeParamD = \case
+  J.TypedParameterTP asyncFlag param aType -> do
+    aParam <- untypedParamD param
+    aType <- typingD aType
+    pure $ A.TypedParameterTP asyncFlag aParam aType
+  J.UntypedTP param -> do
+    aParam <- untypedParamD param
+    pure $ A.UntypedTP aParam
+
+
+untypedParamD :: J.Parameter -> ParseState A.Parameter
+untypedParamD = \case
+  J.ObjectPatternP fields -> do
+    aFields <- mapM fieldSpecD fields
+    pure $ A.ObjectPatternP aFields
+  J.IdentifierP ident -> do
+    aIdent <- identifierD ident
+    pure $ A.IdentifierP aIdent
+
+
+fieldSpecD :: J.FieldSpecification -> ParseState A.FieldSpecification
+fieldSpecD = \case
+  J.SimpleSpecFS ident -> do
+    aIdent <- identifierD ident
+    pure $ A.SimpleSpecFS aIdent
+  J.AssignmentFS ident expr -> do
+    aIdent <- identifierD ident
+    aExpr <- expressionD expr
+    pure $ A.AssignmentFS aIdent aExpr
+
 
 statementsD :: [ J.TsxStatement ] -> ParseState [A.StatementNd]
 statementsD = mapM statementD
@@ -444,32 +482,45 @@ expressionD expr =
     | CommentEX Int
   -}
   case expr of
-    J.TernaryEX _ _ _ ->
-      throwError "TernaryEX not handled"
-    J.BinaryEX _ _ _ ->
-      throwError "BinaryEX not handled"
-    J.UnaryEX _ _ ->
-      throwError "UnaryEX not handled"
+    J.TernaryEX cond thenExpr elseExpr -> do
+      aCond <- expressionD cond
+      aThenExpr <- expressionD thenExpr
+      aElseExpr <- expressionD elseExpr
+      pure $ A.ExpressionNd False False $ A.TernaryEX aCond aThenExpr aElseExpr
+    J.BinaryEX lhs op rhs -> do
+      aLhs <- expressionD lhs
+      aRhs <- expressionD rhs
+      pure $ A.ExpressionNd False False $ A.BinaryEX aLhs (convBinaryOp op) aRhs
+    J.UnaryEX op expr -> do
+      aExpr <- expressionD expr
+      pure $ A.ExpressionNd False False $ A.UnaryEX (convUnaryOp op) aExpr
     J.PrimaryEX ->
       throwError "PrimaryEX not handled"
-    J.AssignmentEX _ _ ->
-      throwError "AssignmentEX not handled"
+    J.AssignmentEX lhs rhs -> do
+      aLhs <- expressionD lhs
+      aRhs <- expressionD rhs
+      pure $ A.ExpressionNd False False $ A.AssignmentEX aLhs aRhs
     J.PropAssignEX ->
       throwError "PropAssignEX not handled"
     J.GetAccessorEX ->
       throwError "GetAccessorEX not handled"
     J.SetAccessorEX ->
       throwError "SetAccessorEX not handled"
-    J.CallEX _ _ ->
-      throwError "CallEX not handled"
+    J.CallEX callerSpec args -> do
+      aCallerSpec <- callerSpecD callerSpec
+      aArgs <- mapM expressionD args
+      pure $ A.ExpressionNd False False $ A.CallEX aCallerSpec aArgs
     J.FunctionDefEX isAsync mbIdent params mbType body ->
       functionDefD isAsync mbIdent params mbType body
-    J.ArrowFunctionEX _ _ ->
-      throwError "ArrowFunctionEX not handled"
+    J.ArrowFunctionEX params body -> do
+      aParams <- mapM typeParamD params
+      aBody <- arrowFunctionBodyD body
+      pure $ A.ExpressionNd False False $ A.ArrowFunctionEX aParams aBody
     J.ParenEX expr ->
       A.ExpressionNd False False . A.ParenEX <$> expressionD expr
-    J.NonNullEX expr ->
-      throwError "NonNullEX not handled"
+    J.NonNullEX expr -> do
+      aExpr <- expressionD expr
+      pure $ A.ExpressionNd False False $ A.NonNullEX aExpr
     J.ArrayEX exprs ->
       A.ExpressionNd False False . A.ArrayEX <$> mapM expressionD exprs
     J.InstanceEX instValues ->
@@ -486,19 +537,31 @@ expressionD expr =
           A.ExpressionNd False False . A.LiteralEX . A.StrTemplateLT <$> mapM stringFragmentD strFragments
         J.NullLT ->
           pure $ A.ExpressionNd False False $ A.LiteralEX A.NullLT
-    J.VarAccessEX _ ->
-      throwError "VarAccessEX not handled"
-    J.MemberAccessEX _ ->
-      throwError "MemberAccessEX not handled"
-    J.AsTypeValueEX expr _ ->
-      throwError "AsTypeValueEX not handled"
+    J.VarAccessEX ident -> do
+      aIdent <- identifierD ident
+      pure $ A.ExpressionNd False False $ A.VarAccessEX aIdent
+    J.MemberAccessEX selector -> do
+      aSelector <- memberSelectorD selector
+      pure $ A.ExpressionNd False False $ A.MemberAccessEX aSelector
+    J.AsTypeValueEX expr aType -> do
+      aExpr <- expressionD expr
+      aType <- typingD aType
+      pure $ A.ExpressionNd False False $ A.AsTypeValueEX aExpr aType
     J.JsxElementEX jsxElement -> do
       A.ExpressionNd False False . A.JsxElementEX <$> elementD jsxElement
-    J.AwaitEX expr ->
-      throwError "AwaitEX not handled"
-    J.CommentEX _ ->
-      throwError "CommentEX not handled"
-
+    J.AwaitEX expr -> do
+      aExpr <- expressionD expr
+      pure $ A.ExpressionNd False False $ A.AwaitEX aExpr
+    J.CommentEX idx -> do
+      identMap <- asks identMap
+      case derefContent "CommentEX not found" idx identMap of
+        Left err -> throwError err
+        Right derefIdx ->
+          pure $ A.ExpressionNd False False $ A.CommentEX derefIdx
+    J.NewEX ident args -> do
+      aIdent <- identifierD ident
+      aArgs <- mapM expressionD args
+      pure $ A.ExpressionNd False False $ A.NewEX aIdent aArgs
 
 elementD :: J.JsxElement -> ParseState A.ElementNd
 elementD jsxElement = do
@@ -571,13 +634,23 @@ attributeD attr =
     J.StringAT strValue ->
       A.StringAT <$> stringValueD strValue
 
+
+arrowFunctionBodyD :: J.ArrowFunctionBody -> ParseState A.ArrowFunctionBody
+arrowFunctionBodyD body =
+  case body of
+    J.StmtBodyAF statements ->
+      A.StmtBodyAF <$> mapM statementD statements
+    J.ExprBodyAF expr ->
+      A.ExprBodyAF <$> expressionD expr
+
+
 instanceValueD :: J.InstanceValue -> ParseState A.InstanceValue
 instanceValueD instValue =
   case instValue of
     J.Pair ident expr ->
       A.Pair <$> identifierD ident <*> expressionD expr
     J.MethodDef ident params body ->
-      A.MethodDef <$> identifierD ident <*> mapM paramD params <*> statementD body
+      A.MethodDef <$> identifierD ident <*> mapM typeParamD params <*> statementD body
     J.VarAccessIV ident ->
       A.VarAccessIV <$> identifierD ident
 
@@ -591,6 +664,44 @@ varDeclD varDecl =
         Just aType -> Just <$> typingD aType
         Nothing -> pure Nothing
       pure $ A.VarDecl aAssignee mbAType aExpr
+
+callerSpecD :: J.CallerSpec -> ParseState A.CallerSpec
+callerSpecD callerSpec =
+  case callerSpec of
+    J.SimpleIdentCS ident -> do
+      aIdent <- identifierD ident
+      pure $ A.SimpleIdentCS aIdent
+    J.MemberCS memberSelector -> do
+      aMemberSelector <- memberSelectorD memberSelector
+      pure $ A.MemberCS aMemberSelector
+
+memberSelectorD :: J.MemberSelector -> ParseState A.MemberSelector
+memberSelectorD memberSelector =
+  case memberSelector of
+    J.DottedMS prefix flag ident -> do
+      aPrefix <- memberPrefixD prefix
+      aIdent <- identifierD ident
+      pure $ A.DottedMS aPrefix flag aIdent
+
+memberPrefixD :: J.MemberPrefix -> ParseState A.MemberPrefix
+memberPrefixD prefix =
+  case prefix of
+    J.SimpleMemberSel ident -> do
+      aIdent <- identifierD ident
+      pure $ A.SimpleMemberSel aIdent
+    J.ComposedMemberSel selector -> do
+      aSelector <- memberSelectorD selector
+      pure $ A.ComposedMemberSel aSelector
+    J.CallMemberSel expr -> do
+      aExpr <- expressionD expr
+      pure $ A.CallMemberSel aExpr
+    J.NonNullSel expr -> do
+      aExpr <- expressionD expr
+      pure $ A.NonNullSel aExpr
+    J.SubscriptMemberSel prefix expr -> do
+      aPrefix <- memberPrefixD prefix
+      aExpr <- expressionD expr
+      pure $ A.SubscriptMemberSel aPrefix aExpr
 
 
 assigneeD :: J.VarAssignee -> ParseState A.VarAssignee
@@ -670,6 +781,56 @@ consoDemand cLines contentDemands =
   in
   (refMap, consoIdent)
 
+
+convUnaryOp :: J.PrefixOperator -> A.PrefixOperator
+convUnaryOp = \case
+  J.PlusPO -> A.PlusPO
+  J.MinusPO -> A.MinusPO
+  J.IncrementPO -> A.IncrementPO
+  J.DecrementPO -> A.DecrementPO
+  J.NotPO -> A.NotPO
+  J.TildaPO -> A.TildaPO
+  J.EllipsisPO -> A.EllipsisPO
+  J.TypeofPO -> A.TypeofPO
+  J.VoidPO -> A.VoidPO
+  J.DeletePO -> A.DeletePO
+  J.AwaitPO -> A.AwaitPO
+  J.NewPO -> A.NewPO
+  J.TypeDefPO -> A.TypeDefPO
+
+
+convBinaryOp :: J.BinaryOperator -> A.BinaryOperator
+convBinaryOp = \case
+  J.NullishBO -> A.NullishBO
+  J.LogicalOrBO -> A.LogicalOrBO
+  J.LogicalAndBO -> A.LogicalAndBO
+  J.BitwiseOrBO -> A.BitwiseOrBO
+  J.BitwiseXorBO -> A.BitwiseXorBO
+  J.BitwiseAndBO -> A.BitwiseAndBO
+  J.EqualityBO -> A.EqualityBO
+  J.LongEqualityBO -> A.LongEqualityBO
+  J.NotEqualityBO -> A.NotEqualityBO
+  J.LongNotEqualityBO -> A.LongNotEqualityBO
+  J.SmallerBO -> A.SmallerBO
+  J.SmallerEqualBO -> A.SmallerEqualBO
+  J.LargerBO -> A.LargerBO
+  J.LargerEqualBO -> A.LargerEqualBO
+  J.BitwiseShiftLeftBO -> A.BitwiseShiftLeftBO
+  J.BitwiseShiftRightBO -> A.BitwiseShiftRightBO
+  J.BitwiseShiftRightUnsignedBO -> A.BitwiseShiftRightUnsignedBO
+  J.AddBO -> A.AddBO
+  J.SubBO -> A.SubBO
+  J.TimesBO -> A.TimesBO
+  J.DivBO -> A.DivBO
+  J.ModBO -> A.ModBO
+  J.ExpBO -> A.ExpBO
+
+
+convDefinedType :: J.DefinedType -> A.DefinedType
+convDefinedType = \case
+  J.StringDT -> A.StringDT
+  J.NumberDT -> A.NumberDT
+  J.BooleanDT -> A.BooleanDT
 
 
 {-

@@ -6,17 +6,8 @@
 module Cannelle.TreeSitter.Class where
 
 
-import Control.Applicative
 import Control.Monad
-import Control.Monad.Cont.Class
-import Control.Monad.Error.Class
-import qualified Control.Monad.Fail as Fail
-import Control.Monad.Fix
-import Control.Monad.IO.Class
-import Control.Monad.Reader.Class
-import Control.Monad.State.Class
 import Control.Monad.Trans
-import Control.Monad.Writer.Class
 import Control.Monad.Identity (IdentityT (..))
 
 import qualified Control.Monad.RWS.Lazy as L

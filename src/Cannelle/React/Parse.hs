@@ -1,7 +1,6 @@
 module Cannelle.React.Parse where
 
-import Control.Monad (when)
-import Control.Monad.Cont (foldM)
+import Control.Monad (when, foldM)
 
 import qualified Data.ByteString as Bs
 import Data.Text (pack, unpack)
@@ -115,7 +114,7 @@ parseTsAst debugMode children count = do
   nodeGraph <- analyzeChildren 0 children count
   end <- getCurrentTime
   putStrLn $ "@[parseTsAst] analyzeChildren time: " <> show (diffUTCTime end start)
-  -- putStrLn $ "@[parseTsChildren] nodeGraph: " <> show nodeGraph
+
   when debugMode $ mapM_ (printNode 0) nodeGraph
   start <- getCurrentTime
   let
@@ -124,22 +123,9 @@ parseTsAst debugMode children count = do
   putStrLn $ "@[parseTsAst] tsxScanner time: " <> show (diffUTCTime end start)
   case scanRez of
     Left err -> pure . Left $ CompError [(0, "@[parseTsAst] testScannerB err: " <> show err)]
-    Right context -> 
+    Right context ->
       pure $ Right context
 
-  -- testScannerC nodeGraph
-  {-
-  let
-    eiLogicCtxt = parseNodesB nodeGraph
-  case eiLogicCtxt of
-    Left err ->
-      let
-        errMsg = "@[parseTsAst] parseNodes err: " <> show err
-      in do
-      putStrLn errMsg
-      pure . Left $ SimpleMsg (pack errMsg)
-    Right logicCtxt -> pure $ Right logicCtxt
-  -}
 
 analyzeChildren :: Int -> Ptr Node -> Int -> IO [NodeEntry]
 analyzeChildren level children count = do

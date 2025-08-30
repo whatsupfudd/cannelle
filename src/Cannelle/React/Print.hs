@@ -145,6 +145,7 @@ showStatement !level !stmt =
             Just anExpr -> showExpression (level + 1) anExpr
     LexicalDeclST constFlag varDecl -> indent <> "LexicalDeclST " <> show constFlag <> " " <> showVarDecl level varDecl
     FunctionDeclST funcDef -> indent <> "FunctionDeclST\n" <> showExpression (succ level) funcDef
+    CommentST comment -> indent <> "CommentST " <> show comment
     _ -> "showStatement: unhandled statement: " <> show stmt
 
 
@@ -201,6 +202,7 @@ showExpression !level !expr =
     AsTypeValueEX value typeAnnotation -> indent <> "AsTypeValueEX " <> show value <> " " <> show typeAnnotation
     AwaitEX expr -> indent <> "AwaitEX\n" <> showExpression (succ level) expr
     CommentEX value -> indent <> "CommentEX " <> show value
+    NewEX ident args -> indent <> "NewEX " <> show ident <> " " <> show args
     _ -> "showExpression: unhandled expression: " <> show expr
 
 

@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use lambda-case" #-}
+{-# LANGUAGE LambdaCase #-}
 module Cannelle.React.Transpiler.ElmGen where
 
 import Control.Monad (foldM)
@@ -69,6 +72,23 @@ statementG indent accum stmt =
             Right accum -> statementG nIdent accum stmt
         ) (Right accum) stmts
 
+    ExpressionST expr -> do
+      tExpr <- expressionG indent expr
+      case tExpr of
+        Left err -> pure . Left $ "@[statementG] (ExpressionST) error: " <> err
+        Right exprStr ->
+          pure . Right $ exprStr
+
+    IfST cond thenStmt mbElseStmt -> do
+      tCond <- expressionG indent cond
+      tThenStmt <- statementG (indent + 2) "" thenStmt
+      case mbElseStmt of 
+        Nothing -> 
+          pure . Right $ "if " <> fromRight "" tCond <> " then " <> fromRight "" tThenStmt <> " else DO-NOTHING"
+        Just elseStmt -> do
+          tElseStmt <- statementG (indent + 2) "" elseStmt
+          pure . Right $ "if " <> fromRight "" tCond <> " then " <> fromRight "" tThenStmt <> " else " <> fromRight "" tElseStmt
+
     ImportST _ mbImportKind importPath -> do
       strings <- asks strings
       case mbImportKind of
@@ -107,8 +127,8 @@ statementG indent accum stmt =
                     Left err -> pure $ Left err
                     Right bodyPart ->
                       pure . Right $ accum <> "\n" <> fctName <> " =" <> bodyPart
-            _ -> pure . Left $ "@[statementG] un-implemented for: " <> show topLvl.tl
-        _ -> pure . Left $ "@[statementG] un-implemented for: " <> show stmt.stmt
+            _ -> pure . Left $ "@[statementG] (FunctionDeclTL) un-implemented for: " <> show topLvl.tl
+        _ -> pure . Left $ "@[statementG] (FunctionEI) un-implemented for: " <> show stmt.stmt
 
     LexicalDeclST _ varDecl -> do
       declBody <- varDeclG (indent + 2) varDecl
@@ -128,6 +148,24 @@ statementG indent accum stmt =
             pure . Right $ accum <> "\n" <> tabS <> fromRight "" tExpr
           else
             pure . Left $ "@[statementG] error in: " <> show tExpr
+    FunctionDeclST expr -> do
+      strings <- asks strings
+      case expr.expr of
+        FunctionDefEX isAsync mbIdent params mbType body -> do
+          let
+            fctName = elmFctName $ maybe "anonymous" (strings V.!) mbIdent
+          eiBodyPart <- foldM (\accum stmt -> case accum of
+                Left err -> pure $ Left err
+                Right accum -> statementG (indent + 2) accum stmt
+              ) (Right "") body
+          case eiBodyPart of
+            Left err -> pure $ Left err
+            Right bodyPart ->
+              pure . Right $ accum <> "\n" <> fctName <> " =" <> bodyPart
+        _ -> pure . Left $ "@[statementG] (FunctionDefEX) un-implemented for: " <> show expr.expr
+    CommentST comment -> do
+      strings <- asks strings
+      pure . Right $ strings V.! comment
     _ -> pure . Left $ "@[statementG] un-implemented for: " <> show stmt.stmt
 
 
@@ -174,8 +212,150 @@ expressionG indent expr = do
     ParenEX innerExpr -> expressionG indent innerExpr
     JsxElementEX jsxElement ->
       jsxElementG indent jsxElement
+    VarAccessEX varName -> do
+      tVarName <- identifierG varName
+      case tVarName of
+        Left err -> pure . Left $ "@[expressionG] VarAccessEX error: " <> err
+        Right varNameStr ->
+          pure . Right $ varNameStr
+
+    MemberAccessEX selector -> do
+      tSelector <- memberSelectorG indent selector
+      case tSelector of
+        Left err -> pure . Left $ "@[expressionG] MemberAccessEX error: " <> err
+        Right selectorStr ->
+          pure . Right $ selectorStr
+
+    TernaryEX cond thenExpr elseExpr -> do
+      tCond <- expressionG indent cond
+      tThenExpr <- expressionG indent thenExpr
+      tElseExpr <- expressionG indent elseExpr
+      case lefts [tCond, tThenExpr, tElseExpr] of
+        [] ->
+          pure . Right $ "if " <> fromRight "" tCond <> " then " <> fromRight "" tThenExpr <> " else " <> fromRight "" tElseExpr
+        errs -> pure . Left $ unlines errs
+    UnaryEX op expr -> do
+      tOp <- getUnaryOp op
+      tExpr <- expressionG indent expr
+      case tOp of
+        Left err -> pure . Left $ "@[expressionG] getUnaryOp error: " <> err
+        Right opStr ->
+          case tExpr of
+            Left err -> pure . Left $ "@[expressionG] expressionG error: " <> err
+            Right exprStr ->
+              pure . Right $ opStr <> " "<> exprStr
+
+    ArrowFunctionEX params body -> do
+      tParams <- mapM (typeParameterG indent) params
+      tBody <- arrowFunctionBodyG (indent + 2) body
+      case lefts (tParams <> [tBody]) of
+        [] ->
+          let
+            tParamsStr = rights tParams
+          in
+          pure . Right $ "\\" <> Bs.intercalate " " tParamsStr <> " -> " <> fromRight "" tBody
+        errs -> pure . Left $ "@[expressionG] ArrowFunctionEX error for: " <> show errs
+
+    CallEX callerSpec args -> do
+      tCallerSpec <- callerSpecG indent callerSpec
+      tArgs <- mapM (expressionG indent) args
+      case lefts (tCallerSpec : tArgs) of
+        [] ->
+          let
+            tArgsStr = rights tArgs
+          in
+          pure . Right $ fromRight "" tCallerSpec <> "(" <> Bs.intercalate "," tArgsStr <> ")"
+        errs ->
+          let
+            errsStr = unlines errs
+          in
+          pure . Left $ "@[expressionG] CallEX error for: " <> errsStr
+
+    CommentEX idx -> do
+      strings <- asks strings
+      pure . Right $ "{- " <> strings V.! idx <> " -}"
+
+    NewEX ident args -> do
+      tIdent <- identifierG ident
+      tArgs <- mapM (expressionG indent) args
+      case lefts (tIdent : tArgs) of
+        [] ->
+          let
+            tArgsStr = rights tArgs
+          in
+          pure . Right $ fromRight "" tIdent <> " " <> Bs.intercalate " " tArgsStr
+        errs -> pure . Left $ "@[expressionG] NewEX error for: " <> show errs
     _ -> pure . Left $ "@[expressionG] un-implemented for: " <> show expr.expr
 
+callerSpecG :: Int -> CallerSpec -> ElmRef (Either String Bs.ByteString)
+callerSpecG indent callerSpec = do
+  let
+    tabS = Bs.replicate indent 32  -- 32 = space
+  case callerSpec of
+    SimpleIdentCS ident ->
+      identifierG ident
+    MemberCS memberSelector -> do
+      tMemberSelector <- memberSelectorG indent memberSelector
+      case tMemberSelector of
+        Left err -> pure . Left $ "@[callerSpecG] memberSelectorG error: " <> err
+        Right memberSelectorStr ->
+          pure . Right $ memberSelectorStr
+
+
+memberSelectorG :: Int -> MemberSelector -> ElmRef (Either String Bs.ByteString)
+memberSelectorG indent memberSelector = do
+  let
+    tabS = Bs.replicate indent 32  -- 32 = space
+  case memberSelector of
+    DottedMS prefix isNull ident -> do
+      tPrefix <- memberPrefixG indent prefix
+      tIdent <- identifierG ident
+      case lefts [tPrefix, tIdent] of
+        [] ->
+          pure . Right $ fromRight "" tPrefix <> "." <> fromRight "" tIdent
+        errs -> pure . Left $ "@[memberSelectorG] error in: " <> show errs
+
+
+
+memberPrefixG :: Int -> MemberPrefix -> ElmRef (Either String Bs.ByteString)
+memberPrefixG indent prefix = do
+  let
+    tabS = Bs.replicate indent 32  -- 32 = space
+  case prefix of
+    SimpleMemberSel ident -> identifierG ident
+    ComposedMemberSel memberSelector -> memberSelectorG indent memberSelector
+    CallMemberSel expr -> expressionG indent expr
+    NonNullSel expr -> expressionG indent expr
+    SubscriptMemberSel prefix expr -> do
+      tPrefix <- memberPrefixG indent prefix
+      tExpr <- expressionG indent expr
+      case lefts [tPrefix, tExpr] of
+        [] ->
+          pure . Right $ fromRight "" tPrefix <> "[" <> fromRight "" tExpr <> "]"
+        errs -> pure . Left $ "@[memberPrefixG] error in: " <> show errs
+
+
+
+arrowFunctionBodyG :: Int -> ArrowFunctionBody -> ElmRef (Either String Bs.ByteString)
+arrowFunctionBodyG indent body = do
+  let
+    tabS = Bs.replicate indent 32  -- 32 = space
+  case body of
+    StmtBodyAF stmts -> do
+      ieStmts <- foldM (\accum stmt -> case accum of
+            Left err -> pure $ Left err
+            Right accum -> statementG (indent + 2) accum stmt
+          ) (Right "") stmts
+      case ieStmts of
+        Left err -> pure . Left $ "@[arrowFunctionBodyG] error in: " <> err
+        Right stmtStr ->
+          pure . Right $ tabS <> stmtStr
+    ExprBodyAF expr -> do
+      tExpr <- expressionG indent expr
+      case tExpr of
+        Left err -> pure . Left $ "@[arrowFunctionBodyG] expressionG error: " <> err
+        Right exprStr ->
+          pure . Right $ exprStr
 
 jsxElementG :: Int -> ElementNd -> ElmRef (Either String Bs.ByteString)
 jsxElementG indent element =
@@ -204,7 +384,15 @@ jsxElementG indent element =
         errs -> pure . Left $ unlines errs
     ElementJex opening children _ ->
       case opening of
-        EmptyOpeningJO -> pure . Left $ "@[jsxElementG] empty opening!"
+        EmptyOpeningJO -> do
+          tChildren <- mapM (jsxElementG (indent + 4)) children
+          case lefts tChildren of
+            [] ->
+              let
+                tChildrenStr = rights tChildren
+              in
+              pure . Right $ "[ " <> Bs.intercalate "\n" tChildrenStr <> " ] \n"
+            errList -> pure . Left $ "@[ElementJex] jsxElementG error for: " <> show errList
         OpeningJO idents attribs -> do
           tIdents <- mapM identifierG idents
           case lefts tIdents of
@@ -226,7 +414,9 @@ jsxElementG indent element =
                       pure . Right $ Bs.intercalate "." tIdentsStr <> "\n"
                         <> tabS <> if null tAttribsStr then "[]" else "  [ " <> Bs.intercalate "," tAttribsStr <> " ]\n"
                         <> tabS <> if null tChildrenStr then "[]" else "  [\n" <> Bs.intercalate "\n" tChildrenStr <> "\n" <> tabS <> "  ]"
-            _ -> pure . Left $ "@[jsxElementG] identifierG error for: " <> show tIdents
+                    errList -> pure . Left $ "@[ElementJex] jsxElementG error for: " <> show errList
+                errList -> pure . Left $ "@[ElementJex] jsxAttributeG error for: " <> show errList
+            _ -> pure . Left $ "@[jsxElementG] un-implemented for: " <> show opening
     ExpressionJex (JsxTsxExpr expr) -> do
       rezA <- expressionG indent expr
       case rezA of
@@ -235,9 +425,18 @@ jsxElementG indent element =
           pure . Right $ "(" <> aText <> ")"
     TextJex idx -> do
       strings <- asks strings
-      pure . Right $ "text " <> strings V.! idx
+      let
+        origStr = strings V.! idx
+        charStart = fromMaybe 0 (
+              Bs.findIndex (\ c -> c /= 32 && c /= 10 && c /= 9) origStr
+          )
+        charEnd = fromMaybe (Bs.length origStr) (
+            Bs.findIndexEnd (\c -> c /= 32 && c /= 10 && c /= 9) origStr
+          )
+      pure . Right $ "text \"" <> Bs.take (charEnd - charStart + 1) (Bs.drop charStart origStr) <> "\""
     HtmlCharRefJex str ->
       pure . Left $ "@[jsxElementG] un-implemented HtmlCharRefJexfor: " <> show str
+
 
 htmlFilter :: Bs.ByteString -> Bs.ByteString
 htmlFilter anIdent =
@@ -314,10 +513,18 @@ jsxAttributeG indent (mbIdx, mbAttr) = do
           rezA <- getStringValue strVal
           case rezA of
             Left err -> pure . Left $ "@[jsxAttributeG] StringAT error: " <> err
-            Right aText -> 
+            Right aText ->
               pure . Right $ maybe "" (\an -> tsxAttribToElm an <> " ") mbAttribName <> aText
     Nothing ->
-      pure . Left $ "@[jsxAttributeG] no attribute!"
+      case mbIdx of
+          Just idx -> do
+            strings <- asks strings
+            let
+              attribName = strings V.! idx
+            pure . Right $ tsxAttribToElm attribName
+          Nothing ->
+            pure . Left $ "@[jsxAttributeG] no attribute! Idx: " <> show mbIdx <> ", attr: " <> show mbAttr
+
 
 tsxAttribToElm :: Bs.ByteString -> Bs.ByteString
 tsxAttribToElm attribName =
@@ -325,6 +532,73 @@ tsxAttribToElm attribName =
     "className" -> "class"
     "htmlFor" -> "for"
     _ -> attribName
+
+
+typeParameterG :: Int -> TypedParameter -> ElmRef (Either String Bs.ByteString)
+typeParameterG indent aParam =
+  case aParam of
+    TypedParameterTP flag pName tsType -> do
+      let
+        tabS = Bs.replicate indent 32  -- 32 = space
+      tType <- typeAnnotationG indent tsType
+      case tType of
+        Left err -> pure . Left $ "@[typeParameterG] typeAnnotationG error: " <> err
+        Right typeStr -> do
+          tName <- parameterNameG pName
+          case tName of
+            Left err -> pure . Left $ "@[typeParameterG] parameterNameG error: " <> err
+            Right nameStr ->
+              pure . Right $ nameStr <> " : " <> typeStr
+    UntypedTP pName ->
+      parameterNameG pName
+
+
+parameterNameG :: Parameter -> ElmRef (Either String Bs.ByteString)
+parameterNameG aParam =
+  case aParam of
+    ObjectPatternP fields -> do
+      fieldNames <- mapM (\field -> do
+            case field of
+              SimpleSpecFS name -> identifierG name
+              AssignmentFS name expr -> identifierG name
+          ) fields
+      case lefts fieldNames of
+        [] ->
+          let
+            fieldNamesStr = rights fieldNames
+          in
+          pure . Right $ "{" <> Bs.intercalate "," fieldNamesStr <> "}"
+        errs -> pure . Left $ "@[parameterNameG] error in: " <> show errs
+    IdentifierP name ->
+      identifierG name
+
+
+typeAnnotationG :: Int -> TypeAnnotation -> ElmRef (Either String Bs.ByteString)
+typeAnnotationG indent aType =
+  case aType of
+    ObjectTypeTA -> pure $ Right "Object"
+    ArrayTypeTA -> pure $ Right "Array"
+    PredefinedTypeTA aDefinedType -> do
+      pure . Right $ predefinedTypeToElm aDefinedType
+    TypeIdentifierTA idx -> do
+      strings <- asks strings
+      pure . Right $ strings V.! idx
+    NestedTA name idx -> do
+      tName <- identifierG name
+      case tName of
+        Left err -> pure . Left $ "@[typeAnnotationG] identifierG error: " <> err
+        Right nameStr ->
+          pure . Right $ nameStr <> "[" <> Bs8.pack (show idx) <> "]"
+    GenericTA -> pure $ Right "Generic"
+
+
+predefinedTypeToElm :: DefinedType -> Bs.ByteString
+predefinedTypeToElm aDefinedType =
+  case aDefinedType of
+    StringDT -> "String"
+    NumberDT -> "Number"
+    BooleanDT -> "Bool"
+
 
 instanceValueG :: Int -> InstanceValue -> ElmRef (Either String Bs.ByteString)
 instanceValueG indent value = do
@@ -349,6 +623,8 @@ getLiteralValue aLit =
       pure . Right $ Bs8.pack $ show intVal
     BooleanLT boolVal ->
       pure . Right $ if boolVal then "True" else "False"
+    NullLT ->
+      pure . Right $ ""
     _ -> pure . Left $ "@[getLiteralValue] un-implemented for: " <> show aLit
 
 
@@ -421,3 +697,20 @@ getFragment fragment = do
     HtmlCharRefSV idx ->
       pure . Right $ strings V.! idx
     _ -> pure . Left $ "@[getFragment] un-implemented for: " <> show fragment
+
+getUnaryOp :: PrefixOperator -> ElmRef (Either String Bs.ByteString)
+getUnaryOp op =
+  case op of
+    PlusPO -> pure $ Right "+"
+    MinusPO -> pure $ Right "-"
+    IncrementPO -> pure $ Right "++"
+    DecrementPO -> pure $ Right "--"
+    NotPO -> pure $ Right "not"
+    TildaPO -> pure $ Right "~"
+    EllipsisPO -> pure $ Right "..."
+    TypeofPO -> pure $ Right "typeof"
+    VoidPO -> pure $ Right "void"
+    DeletePO -> pure $ Right "delete"
+    AwaitPO -> pure $ Right "await"
+    NewPO -> pure $ Right "new"
+    TypeDefPO -> pure $ Right "typeof"

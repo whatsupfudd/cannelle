@@ -50,6 +50,7 @@ import qualified Cannelle.Hugo.Exec as He
 import qualified Cannelle.Templog.Parse as Tp
 import qualified Cannelle.Templog.Exec as Te
 import qualified Cannelle.Fuddle.Parse as Fd
+import qualified Cannelle.Haskell.Parse as Hs
 
 import qualified Cannelle.PHP.Parse as Ph
 import Cannelle.PHP.Print (printPhpContext)
@@ -70,8 +71,9 @@ main :: IO ()
 main = do
     args <- getArgs
     options <- parseOptions args
+    putStrLn $ "@[main] options: " <> show options
     case options of
-      RunOptions rtOpts dat tech mbOut tpl->
+      RunOptions rtOpts dat tech mbOut tpl -> do
         case tech of
           Jinja -> runJinja tpl dat
           Hugo -> runHugo tpl dat mbOut
@@ -79,6 +81,7 @@ main = do
           Templog -> runTemplog (rtOpts == 1) tpl dat
           Tsx -> runTsx rtOpts tpl dat
           Fuddle -> runFuddle rtOpts tpl dat
+          Haskell -> runHaskell rtOpts tpl dat
 
 
 loadData :: DataSource -> IO (Either YAML.ParseException (HashMap Text JSON.Value))
@@ -237,6 +240,21 @@ runFuddle rtOpts tplSrc dataSrc = do
           putStrLn $ "@[runFuddle] ctx: " <> show ctx <> "\n"
     TemplateFromStdin ->
       putStrLn "@[runFuddle] TemplateFromStdin not supported yet."
+  pure ()
+
+
+runHaskell :: Int -> TemplateSource -> DataSource -> IO ()
+runHaskell rtOpts tplSrc dataSrc = do
+  rezA <- case tplSrc of
+    TemplateFromFile fn -> do
+      rezB <- Hs.parse (rtOpts > 0) fn
+      case rezB of
+        Left errMsg ->
+          putStrLn $ "@[runHaskell] tsParseHaskell err: " <> show errMsg
+        Right ctx -> do
+          putStrLn $ "@[runHaskell] got context."
+    TemplateFromStdin ->
+      putStrLn "@[runHaskell] TemplateFromStdin not supported yet."
   pure ()
 
 

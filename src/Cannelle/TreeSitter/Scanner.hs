@@ -1,16 +1,15 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE FunctionalDependencies #-}
 
 
@@ -243,7 +242,7 @@ instance (MonadFix m, Ord errT) => MonadFix (ScannerT errT m) where
         Error _ -> error "mfix ScannerT"
     runScannerT (f a) state
 
-instance MonadTrans (ScannerT e) where
+instance (Ord errT) => MonadTrans (ScannerT errT) where
   lift amb = ScannerT $ \state _ _ emptyOK _ ->
     amb >>= \a -> emptyOK a state mempty
 

@@ -258,6 +258,7 @@ data TsxExpression =
   | JsxElementEX JsxElement
   | AwaitEX TsxExpression
   | CommentEX Int
+  | NewEX Identifier [TsxExpression]
   deriving Show
 
 

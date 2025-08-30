@@ -1,6 +1,6 @@
 module Cannelle.PHP.NeParser where
 
-import Control.Monad.Cont (foldM)
+import Control.Monad (foldM)
 import Control.Applicative (asum, many, some, (<|>))
 
 import Control.Monad.Identity (Identity(..))

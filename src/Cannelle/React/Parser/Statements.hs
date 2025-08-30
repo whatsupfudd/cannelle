@@ -15,11 +15,11 @@ import Cannelle.React.Parser.Support
 import Cannelle.React.AST
 import Cannelle.PHP.Parser.Statements (functionDefS)
 
+--     , fctDefTopLevelS
 
 topLevelS :: ScannerP TsxTopLevel
 topLevelS = asum [
     StatementTL <$> statementS
-    , fctDefTopLevelS
     , typeDeclS
     , interfaceDeclS
   ]
@@ -28,7 +28,8 @@ topLevelS = asum [
 statementS :: ScannerP TsxStatement
 statementS = debugOpt "statementS" $ do
   stmt <- asum [
-      debugOpt "statementS-blockS" $ CompoundST <$> stmtBlockS
+        debugOpt "statementS-functionDeclStmtS" functionDeclStmtS
+      , debugOpt "statementS-blockS" $ CompoundST <$> stmtBlockS
       , debugOpt "statementS-importS" importS
       , debugOpt "statementS-exportS" exportS
       , debugOpt "statementS-returnS" returnS
@@ -37,7 +38,6 @@ statementS = debugOpt "statementS" $ do
       , CommentST <$> S.symbol "comment"
       , debugOpt "statementS-exprStmtS" exprStmtS
       , debugOpt "statementS-ifS" ifS
-      , debugOpt "statementS-functionDeclStmtS" functionDeclStmtS
     ]
   optional (S.single ";")
   pure stmt
@@ -353,6 +353,7 @@ expressionS = asum [
     , debugOpt "expressionS-asTypeValueEX" asTypeValueS
     , debugOpt "expressionS-awaitEX" awaitExprS
     , debugOpt "expressionS-commentEX" commentS
+    , debugOpt "expressionS-new" newExprS
   ]
 
 
@@ -792,3 +793,11 @@ simpleIdentifierS = asum [
 commentS :: ScannerP TsxExpression
 commentS = do
   CommentEX <$> S.symbol "comment"
+
+
+newExprS :: ScannerP TsxExpression
+newExprS = do
+  S.singleP "new_expression"
+  S.single "new"
+  ident <- debugOpt "newExprS-ident" simpleIdentifierS
+  NewEX ident <$> debugOpt "newExprS-fctArgumentS" fctArgumentS

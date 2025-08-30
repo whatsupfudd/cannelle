@@ -3,8 +3,7 @@
 module Cannelle.Templog.Parser where
 
 
-import Control.Monad ( forM_, when )
-import Control.Monad.Cont (foldM)
+import Control.Monad ( forM_, when, foldM )
 import Control.Monad.State (State, runState)
 import qualified Data.ByteString as BS
 import Data.Either (fromLeft, fromRight)

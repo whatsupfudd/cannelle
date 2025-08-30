@@ -1,12 +1,12 @@
 module Cannelle.Common.TsAST where
 
-import Control.Monad (when)
-import Control.Monad.Cont (foldM)
+import Control.Monad (when, foldM)
 
 import Data.Time (getCurrentTime, diffUTCTime)
 import Data.Text (unpack)
 import qualified Data.ByteString as Bs
-import Data.Text.Encoding (decodeUtf8)
+import Data.Text.Encoding (decodeUtf8With)
+import Data.Text.Encoding.Error (lenientDecode)
 
 import Foreign.C.String ( newCStringLen, peekCString )
 import Foreign.Ptr ( Ptr, nullPtr )
@@ -26,7 +26,7 @@ import Cannelle.TreeSitter.Types (NodeEntry(..))
 tryParseFromContent :: Bool -> Ptr Parser -> (Bool -> Ptr Node -> Int -> IO (Either CompError langCtxt)) -> FilePath -> Bs.ByteString-> IO (Either CompError langCtxt)
 tryParseFromContent debugMode parser toLanguageAst path content = do
   -- This is standard preambule:
-  (cStr, strLen) <- newCStringLen $ unpack . decodeUtf8 $ content
+  (cStr, strLen) <- newCStringLen $ unpack . decodeUtf8With lenientDecode $ content
   start <- getCurrentTime
   tree <- ts_parser_parse_string parser nullPtr cStr strLen
   end <- getCurrentTime

@@ -1,7 +1,6 @@
 module Cannelle.PHP.Parse where
 
-import Control.Monad (when)
-import Control.Monad.Cont (foldM)
+import Control.Monad (when, foldM)
 
 import qualified Data.ByteString as Bs
 import Data.Text (pack, unpack)
