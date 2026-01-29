@@ -34,6 +34,8 @@ data TechMode =
   | Tsx
   | Templog
   | Haskell
+  | Cmm
+  | Ruby
   deriving Show
 
 parseOptions :: [String] -> IO Options
@@ -129,3 +131,5 @@ techMode =
     <> command "tsx" (info (pure Tsx) (progDesc "Use the TypeScript-TSX template engine"))
     <> command "fuddle" (info (pure Fuddle) (progDesc "Use the Fuddle template engine"))
     <> command "haskell" (info (pure Haskell) (progDesc "Use the Haskell template engine"))
+    <> command "cmm" (info (pure Cmm) (progDesc "Use the CMM template engine"))
+    <> command "ruby" (info (pure Ruby) (progDesc "Use the Ruby template engine"))

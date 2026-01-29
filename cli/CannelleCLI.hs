@@ -51,7 +51,7 @@ import qualified Cannelle.Templog.Parse as Tp
 import qualified Cannelle.Templog.Exec as Te
 import qualified Cannelle.Fuddle.Parse as Fd
 import qualified Cannelle.Haskell.Parse as Hs
-
+import qualified Cannelle.Cmm.Parse as Cmm
 import qualified Cannelle.PHP.Parse as Ph
 import Cannelle.PHP.Print (printPhpContext)
 
@@ -61,6 +61,7 @@ import Cannelle.React.Transpiler.Print (printAnalyzedAst)
 import Cannelle.React.Transpiler.ElmGen (makeElmCode)
 -- TMP:
 import Cannelle.React.Transpiler.AnalyzeAst (analyzeAst, AnalyzeResult (..))
+import qualified Cannelle.Ruby.Parse as Rb
 
 import qualified Cannelle.FileUnit.InOut as Fio
 
@@ -82,6 +83,8 @@ main = do
           Tsx -> runTsx rtOpts tpl dat
           Fuddle -> runFuddle rtOpts tpl dat
           Haskell -> runHaskell rtOpts tpl dat
+          Cmm -> runCmm rtOpts tpl dat
+          Ruby -> runRuby rtOpts tpl dat
 
 
 loadData :: DataSource -> IO (Either YAML.ParseException (HashMap Text JSON.Value))
@@ -255,6 +258,30 @@ runHaskell rtOpts tplSrc dataSrc = do
           putStrLn $ "@[runHaskell] got context."
     TemplateFromStdin ->
       putStrLn "@[runHaskell] TemplateFromStdin not supported yet."
+  pure ()
+
+
+runCmm :: Int -> TemplateSource -> DataSource -> IO ()
+runCmm rtOpts tplSrc dataSrc = do
+  rezA <- case tplSrc of
+    TemplateFromFile fn -> do
+      rezB <- Cmm.parseFile (rtOpts > 0) fn
+      case rezB of
+        Left errMsg -> putStrLn $ "@[runCmm] parseFile err: " <> errMsg
+        Right moduleCmm -> do
+          putStrLn $ "@[runCmm] moduleCmm:\n" <> show moduleCmm
+  pure ()
+
+
+runRuby :: Int -> TemplateSource -> DataSource -> IO ()
+runRuby rtOpts tplSrc dataSrc = do
+  rezA <- case tplSrc of
+    TemplateFromFile fn -> do
+      rezB <- Rb.tsParseRuby (rtOpts > 0) fn
+      case rezB of
+        Left errMsg -> putStrLn $ "@[runRuby] parse err: " <> show errMsg
+        Right ctx -> do
+          putStrLn $ "@[runRuby] got context."
   pure ()
 
 

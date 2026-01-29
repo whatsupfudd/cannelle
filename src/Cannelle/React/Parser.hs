@@ -8,9 +8,9 @@ import qualified Cannelle.TreeSitter.Scanner as Sc
 import qualified Cannelle.TreeSitter.Error as E
 import Cannelle.TreeSitter.Types (NodeEntry (..))
 
+import Cannelle.Parser.Scanner (ScannerP)
 import Cannelle.React.Parser.Statements (topLevelS)
 import Cannelle.React.Parser.Support (debugOpt)
-import Cannelle.React.Parser.Types
 import Cannelle.React.AST (ReactContext(..), TsxTopLevel(..))
 
 

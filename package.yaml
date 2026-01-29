@@ -41,6 +41,7 @@ dependencies:
   - tree-sitter-php
   - tree-sitter-tsx
   - tree-sitter-elm
+  - tree-sitter-ruby
   # For PHP:
   - deepseq
   # For binary parsing:

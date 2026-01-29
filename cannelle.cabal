@@ -25,6 +25,10 @@ source-repository head
 library
   exposed-modules:
       Cannelle.Assembler.Logic
+      Cannelle.Cmm.Parse
+      Cannelle.Cmm.Parsing.AST
+      Cannelle.Cmm.Parsing.Error
+      Cannelle.Cmm.Parsing.Statements
       Cannelle.Common.Error
       Cannelle.Common.TsAST
       Cannelle.Compiler.ConstantPool
@@ -73,6 +77,7 @@ library
       Cannelle.Jinja.Run.Type
       Cannelle.Jinja.Run.VM
       Cannelle.Parser.Debug
+      Cannelle.Parser.Scanner
       Cannelle.PHP.AST
       Cannelle.PHP.NeParser
       Cannelle.PHP.Parse
@@ -93,6 +98,9 @@ library
       Cannelle.React.Transpiler.ElmGen
       Cannelle.React.Transpiler.Print
       Cannelle.React.Types
+      Cannelle.Ruby.AST
+      Cannelle.Ruby.Parse
+      Cannelle.Ruby.Parser
       Cannelle.Templog.AST
       Cannelle.Templog.Compiler.Context
       Cannelle.Templog.Compiler.GramParser
@@ -159,6 +167,7 @@ library
     , tree-sitter-elm
     , tree-sitter-haskell
     , tree-sitter-php
+    , tree-sitter-ruby
     , tree-sitter-tsx
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
@@ -207,6 +216,7 @@ executable cannelle
     , tree-sitter-elm
     , tree-sitter-haskell
     , tree-sitter-php
+    , tree-sitter-ruby
     , tree-sitter-tsx
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
@@ -254,6 +264,7 @@ test-suite cannelle-test
     , tree-sitter-elm
     , tree-sitter-haskell
     , tree-sitter-php
+    , tree-sitter-ruby
     , tree-sitter-tsx
     , unordered-containers >=0.2.5 && <0.3
     , utf8-string >=1.0.1.1 && <1.1
