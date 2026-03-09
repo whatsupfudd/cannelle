@@ -48,6 +48,13 @@ dependencies:
   - binary
   # For float/word32 conversion:
   - reinterpret-cast
+  # For HTML parsing:
+  - html-parse
+  # For PHP rendering:
+  - blaze-html
+  - blaze-htmx
+  - blaze-svg
+  - blaze-markup
 
 
 default-extensions:

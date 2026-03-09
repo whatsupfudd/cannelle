@@ -53,6 +53,10 @@ library
       Cannelle.Haskell.Parser.Types
       Cannelle.Haskell.Print
       Cannelle.Haskell.Types
+      Cannelle.Html.Parser
+      Cannelle.Html.Render
+      Cannelle.Html.Serialise
+      Cannelle.Html.Types
       Cannelle.Hugo.ActionMerger
       Cannelle.Hugo.AST
       Cannelle.Hugo.Common
@@ -86,6 +90,8 @@ library
       Cannelle.PHP.Parser.Support
       Cannelle.PHP.Parser.Types
       Cannelle.PHP.Print
+      Cannelle.PHP.Render
+      Cannelle.PHP.Serialise
       Cannelle.React.AST
       Cannelle.React.Parse
       Cannelle.React.Parser
@@ -145,12 +151,17 @@ library
     , aeson-pretty >=0.8.7 && <0.9
     , base >=4.8 && <5
     , binary
+    , blaze-html
+    , blaze-htmx
+    , blaze-markup
+    , blaze-svg
     , bytestring >=0.10.8.2 && <0.12
     , containers >=0.6.4 && <0.7
     , cryptohash-md5
     , data-default >=0.5 && <0.8
     , deepseq
     , filepath >=1.3 && <1.5
+    , html-parse
     , http-types >=0.8 && (<0.11 || >=0.12) && <0.13
     , megaparsec
     , mtl >=2.2 && <2.4
@@ -191,6 +202,10 @@ executable cannelle
     , aeson-pretty >=0.8.7 && <0.9
     , base >=4.8 && <5
     , binary
+    , blaze-html
+    , blaze-htmx
+    , blaze-markup
+    , blaze-svg
     , bytestring >=0.10.8.2 && <0.12
     , cannelle
     , containers >=0.6.4 && <0.7
@@ -198,6 +213,7 @@ executable cannelle
     , data-default >=0.5 && <0.8
     , deepseq
     , filepath >=1.3 && <1.5
+    , html-parse
     , http-types >=0.8 && (<0.11 || >=0.12) && <0.13
     , megaparsec
     , mtl >=2.2 && <2.4
@@ -242,12 +258,17 @@ test-suite cannelle-test
     , aeson-pretty >=0.8.7 && <0.9
     , base >=4.8 && <5
     , binary
+    , blaze-html
+    , blaze-htmx
+    , blaze-markup
+    , blaze-svg
     , bytestring >=0.10.8.2 && <0.12
     , containers >=0.6.4 && <0.7
     , cryptohash-md5
     , data-default >=0.5 && <0.8
     , deepseq
     , filepath >=1.3 && <1.5
+    , html-parse
     , http-types >=0.8 && (<0.11 || >=0.12) && <0.13
     , megaparsec
     , mtl >=2.2 && <2.4
