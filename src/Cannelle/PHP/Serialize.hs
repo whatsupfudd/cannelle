@@ -14,51 +14,6 @@ import TreeSitter.Node (TSPoint(..))
 import Cannelle.TreeSitter.Types (SegmentPos)
 import Cannelle.PHP.AST
 
-compactText :: FilePath -> V.Vector SegmentPos -> IO (Mp.Map Int32 (Bs.ByteString, [Int32]))
-compactText sourceFile contentDemands = do
-  sourceText <- Bs.readFile sourceFile
-  let
-    cLines = V.fromList $ Bs.split 10 sourceText
-    demandLines = V.map (fetchContent cLines) $ V.zip contentDemands (V.fromList [0..])
-    firstHash =
-        Mp.fromListWith mergeHashUsers $ V.toList $ V.map (\(pos, lineText) -> (Cr.hash lineText, (lineText, [pos]))) demandLines
-    posFromHash = zipWith (\rid (k, (lt, users)) -> (rid, (lt, users))) [0..] (Mp.toList firstHash)
-  pure $ Mp.fromList posFromHash
-  where
-  mergeHashUsers :: (Bs.ByteString, [Int32]) -> (Bs.ByteString, [Int32]) -> (Bs.ByteString, [Int32])
-  mergeHashUsers (lineText, accum) (_, e2) = (lineText, accum <> e2)
-
-  fetchContent :: V.Vector Bs.ByteString -> (SegmentPos, Int) -> (Int32, Bs.ByteString)
-  fetchContent cLines ((start, end), lineNum) =
-    let
-      startLine = fromIntegral start.pointRow
-      startCol = fromIntegral start.pointColumn
-      endLine = fromIntegral end.pointRow
-      endCol = fromIntegral end.pointColumn
-      mainText
-        | startLine == endLine = Bs.take (endCol - startCol) $ Bs.drop startCol (cLines V.! startLine)
-        | endCol == 0 = let
-                          prefix = Bs.drop startCol (cLines V.! startLine)
-                          middle = if endLine == succ startLine then
-                              ""
-                            else
-                              V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine - 1) cLines)
-                        in
-                        prefix <> middle
-        | succ startLine == endLine = let
-                        prefix = Bs.drop startCol (cLines V.! startLine)
-                        postfix = Bs.take endCol (cLines V.! endLine)
-                      in
-                      prefix <> "\n" <> postfix
-        | otherwise = let
-                        prefix = Bs.drop startCol (cLines V.! startLine)
-                        middle = V.foldl (\acc x -> acc <> "\n" <> x) "" (V.slice (succ startLine) (endLine - startLine - 1) cLines)
-                        postfix = Bs.take endCol (cLines V.! endLine)
-                      in
-                      prefix <> middle <> "\n" <> postfix
-    in
-    (fromIntegral lineNum, mainText)
-
 
 convertAST :: V.Vector PhpAction -> Mp.Map Int32 (Bs.ByteString, [Int32]) -> Bs.ByteString
 convertAST logic constants =

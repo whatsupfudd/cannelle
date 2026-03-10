@@ -1,6 +1,5 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use lambda-case" #-}
-{-# LANGUAGE LambdaCase #-}
 module Cannelle.React.Transpiler.ElmGen where
 
 import Control.Monad (foldM)
@@ -9,7 +8,7 @@ import Control.Monad.Reader (Reader, runReader, asks)
 import qualified Data.ByteString as Bs
 import qualified Data.ByteString.Char8 as Bs8
 import qualified Data.Char as Ch
-import Data.Either (lefts, fromRight, rights, isRight)
+import Data.Either (lefts, fromRight, rights, isRight, partitionEithers)
 import Data.List (unlines)
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
@@ -130,14 +129,14 @@ statementG indent accum stmt =
             _ -> pure . Left $ "@[statementG] (FunctionDeclTL) un-implemented for: " <> show topLvl.tl
         _ -> pure . Left $ "@[statementG] (FunctionEI) un-implemented for: " <> show stmt.stmt
 
-    LexicalDeclST _ varDecl -> do
-      declBody <- varDeclG (indent + 2) varDecl
-      case declBody of
-        Left err -> pure $ Left err
-        Right declBodyPart ->
+    LexicalDeclST _ varDecls -> do
+      declBody <- mapM (varDeclG (indent + 2)) varDecls
+      case partitionEithers declBody of
+        ([], declBodyParts) ->
           pure . Right $ accum <> "\n" <> tabS <> "let\n"
-                <> tabS <> "  " <> declBodyPart <> "\n"
+                <> tabS <> "  " <> Bs.intercalate "\n" declBodyParts <> "\n"
                 <> tabS <> "in"
+        (errs, _) -> pure . Left $ unlines errs
 
     ReturnST mbExpr -> do
       case mbExpr of
@@ -256,7 +255,8 @@ expressionG indent expr = do
           pure . Right $ "\\" <> Bs.intercalate " " tParamsStr <> " -> " <> fromRight "" tBody
         errs -> pure . Left $ "@[expressionG] ArrowFunctionEX error for: " <> show errs
 
-    CallEX callerSpec args -> do
+    CallEX callerSpec isNullGuarded args -> do
+      -- TODO: handle isNullGuarded
       tCallerSpec <- callerSpecG indent callerSpec
       tArgs <- mapM (expressionG indent) args
       case lefts (tCallerSpec : tArgs) of
@@ -536,8 +536,9 @@ tsxAttribToElm attribName =
 
 typeParameterG :: Int -> TypedParameter -> ElmRef (Either String Bs.ByteString)
 typeParameterG indent aParam =
+  -- TODO: handle mbInit.
   case aParam of
-    TypedParameterTP flag pName tsType -> do
+    TypedParameterTP flag pName tsType mbInit -> do
       let
         tabS = Bs.replicate indent 32  -- 32 = space
       tType <- typeAnnotationG indent tsType
@@ -549,7 +550,7 @@ typeParameterG indent aParam =
             Left err -> pure . Left $ "@[typeParameterG] parameterNameG error: " <> err
             Right nameStr ->
               pure . Right $ nameStr <> " : " <> typeStr
-    UntypedTP pName ->
+    UntypedTP pName mbInit ->
       parameterNameG pName
 
 

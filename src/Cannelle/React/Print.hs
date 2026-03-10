@@ -121,14 +121,37 @@ showStatement !level !stmt =
         <> case mbElseClause of
           Just elseClause -> indent <> "else\n" <> showStatement (succ level) elseClause
           Nothing -> ""
-    SwitchST -> indent <> "SwitchST"
-    ForST -> indent <> "ForST"
-    ForInST -> indent <> "ForInST"
-    ForOfST -> indent <> "ForOfST"
-    DoWhileST -> indent <> "DoWhileST"
-    ControlFlowST -> indent <> "ControlFlowST"
-    TryCatchFinallyST -> indent <> "TryCatchFinallyST"
-    LabelST -> indent <> "LabelST"
+    SwitchST cond cases mbDefault -> indent <> "SwitchST\n"
+        <> showExpression (level + 1) cond <> "\n"
+        <> intercalate "\n" (map (showCase (succ level)) cases) <> "\n"
+        <> case mbDefault of
+          Just defaultCase -> indent <> "default\n" <> intercalate "\n" (map (showStatement (succ level)) defaultCase)
+          Nothing -> ""
+    ForST init cond loop body -> indent <> "ForST\n"
+        <> showExpression (level + 1) init <> "\n"
+        <> showExpression (level + 1) cond <> "\n"
+        <> showExpression (level + 1) loop <> "\n"
+        <> showStatement (succ level) body
+    ForOverST overKind left right body -> indent <> "ForOverST " <> show overKind <> "\n"
+        <> show left <> "\n"
+        <> showExpression (level + 1) right <> "\n"
+        <> showStatement (succ level) body
+    DoWhileST cond body -> indent <> "DoWhileST\n"
+        <> showExpression (level + 1) cond <> "\n"
+        <> showStatement (succ level) body
+    WhileST cond body -> indent <> "WhileST\n"
+        <> showExpression (level + 1) cond <> "\n"
+        <> showStatement (succ level) body
+    ControlFlowST controlFlowKind -> indent <> "ControlFlowST " <> show controlFlowKind
+    TryCatchFinallyST body catch finally -> indent <> "TryCatchFinallyST\n"
+        <> showStatement (succ level) body <> "\n"
+        <> case catch of
+          Just catchClause -> indent <> "catch: " <> showStatement (succ level) catchClause <> "\n"
+          Nothing -> ""
+        <> case finally of
+          Just finallyClause -> indent <> "finally: " <> showStatement (succ level) finallyClause <> "\n"
+          Nothing -> ""
+    LabelST ident body -> indent <> "LabelST " <> show ident <> "\n" <> showStatement (succ level) body
     ExportST isDefault item -> indent <> "ExportST "
         <> (if isDefault then "default " else " ")
         <> case item of
@@ -143,10 +166,19 @@ showStatement !level !stmt =
           <> case mbExpr of
             Nothing -> ""
             Just anExpr -> showExpression (level + 1) anExpr
-    LexicalDeclST constFlag varDecl -> indent <> "LexicalDeclST " <> show constFlag <> " " <> showVarDecl level varDecl
+    LexicalDeclST constFlag varDecls -> indent <> "LexicalDeclST " <> show constFlag <> " "
+                  <> intercalate "\n" (map (showVarDecl (succ level)) varDecls)
     FunctionDeclST funcDef -> indent <> "FunctionDeclST\n" <> showExpression (succ level) funcDef
     CommentST comment -> indent <> "CommentST " <> show comment
     _ -> "showStatement: unhandled statement: " <> show stmt
+
+
+showCase :: Int -> (TsxExpression, [TsxStatement]) -> String
+showCase !level (cond, statements) =
+  let
+    indent = replicate (level * 2) ' '
+  in
+  indent <> "Case: " <> showExpression (level + 1) cond <> "\n" <> intercalate "\n" (map (showStatement (succ level)) statements)
 
 
 showVarDecl :: Int -> VarDecl -> String
@@ -178,11 +210,11 @@ showExpression !level !expr =
     BinaryEX lhs op rhs -> indent <> "BinaryEX " <> showExpression (level + 1) lhs <> " " <> show op <> " " <> showExpression (level + 1) rhs
     UnaryEX op expr -> indent <> "UnaryEX " <> show op <> "\n" <> showExpression (level + 1) expr
     PrimaryEX -> indent <> "PrimaryEX"
-    AssignmentEX lhs rhs -> indent <> "AssignmentEX\n" <> showExpression (level + 1) lhs <> "\n" <> showExpression (level + 1) rhs
+    AssignmentEX op lhs rhs -> indent <> "AssignmentEX\n" <> show op <> " : " <> showExpression (level + 1) lhs <> "\n" <> showExpression (level + 1) rhs
     PropAssignEX -> indent <> "PropAssignEX"
     GetAccessorEX -> indent <> "GetAccessorEX"
     SetAccessorEX -> indent <> "SetAccessorEX"
-    CallEX selector args -> indent <> "CallEX " <> show selector <> "\n" <> intercalate "\n" (map (showExpression (succ level)) args)
+    CallEX selector isNullGuarded args -> indent <> "CallEX " <> show selector <> " " <> show isNullGuarded <> "\n" <> intercalate "\n" (map (showExpression (succ level)) args)
     FunctionDefEX asyncFlag ident params mbType body -> indent <> "FunctionDefEX "
             <> (if asyncFlag then "async " else " ") 
             <> show ident <> " " <> show params <> " " <> show mbType <> "\n"
@@ -199,10 +231,12 @@ showExpression !level !expr =
     VarAccessEX ident -> indent <> "VarAccessEX " <> show ident
     MemberAccessEX selector -> indent <> "MemberAccessEX " <> show selector
     JsxElementEX jsxElement -> showJsxElement (succ level) jsxElement
-    AsTypeValueEX value typeAnnotation -> indent <> "AsTypeValueEX " <> show value <> " " <> show typeAnnotation
+    AsTypeValueEX value typeAnnotation -> indent <> "AsTypeValueEX " <> showExpression (level + 1) value <> " " <> show typeAnnotation
     AwaitEX expr -> indent <> "AwaitEX\n" <> showExpression (succ level) expr
     CommentEX value -> indent <> "CommentEX " <> show value
     NewEX ident args -> indent <> "NewEX " <> show ident <> " " <> show args
+    UpdateEX op expr -> indent <> "UpdateEX " <> show op <> "\n" <> showExpression (succ level) expr
+    RegexEX pattern flags -> indent <> "RegexEX " <> show pattern <> " " <> show flags
     _ -> "showExpression: unhandled expression: " <> show expr
 
 

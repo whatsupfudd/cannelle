@@ -14,6 +14,7 @@ import Cannelle.React.Parser.Support
 
 import Cannelle.React.AST
 import Cannelle.PHP.Parser.Statements (functionDefS)
+import Cannelle.Hugo.Parser (identifier)
 
 --     , fctDefTopLevelS
 
@@ -25,6 +26,30 @@ topLevelS = asum [
   ]
 
 
+{-
+  CompoundST [TsxStatement]
+  | OK: ExpressionST TsxExpression
+  | DeclarationST
+  | OK: IfST TsxExpression TsxStatement (Maybe TsxStatement)
+  | SwitchST
+  | ForST
+  | ForInST
+  | ForOfST
+  | DoWhileST
+  | WhileST
+  | ControlFlowST
+  | TryCatchFinallyST
+  | LabelST
+  -- Export defaultFlag Item-exported
+  | OK: ExportST Bool ExportItem
+  | OK: ImportST Bool (Maybe ImportKind) StringValue
+  | OK: ReturnST (Maybe TsxExpression)
+  -- Where is this in the grammar?
+  | LexicalDeclST VarKind VarDecl
+  | OK: FunctionDeclST TsxExpression      -- Always a FunctionDefEX.
+  -- Warning, duplicates the CommentEX...
+  | OK: CommentST Int
+-}
 statementS :: ScannerP TsxStatement
 statementS = debugOpt "statementS" $ do
   stmt <- asum [
@@ -38,6 +63,14 @@ statementS = debugOpt "statementS" $ do
       , CommentST <$> S.symbol "comment"
       , debugOpt "statementS-exprStmtS" exprStmtS
       , debugOpt "statementS-ifS" ifS
+      , debugOpt "statementS-switchS" switchS
+      , debugOpt "statementS-forS" forS
+      , debugOpt "statementS-forOverS" forOverS
+      , debugOpt "statementS-doWhileS" doWhileS
+      , debugOpt "statementS-whileS" whileS
+      , debugOpt "statementS-controlFlowS" controlFlowS
+      , debugOpt "statementS-tryCatchFinallyS" tryCatchFinallyS
+      , debugOpt "statementS-labelS" labelS
     ]
   optional (S.single ";")
   pure stmt
@@ -78,6 +111,11 @@ importKindS = asum [
       optional $ S.single ","
       S.single "}"
       pure $ NamedIK specs
+    , do
+      S.singleP "namespace_import"
+      S.single "*"
+      S.single "as"
+      NamespaceIK <$> S.symbol "identifier"
   ]
 
 
@@ -194,9 +232,16 @@ formalParameterS = do
       ]
   when isOptional $ void (S.single "?")
   eiAnnotation <- debugOpt "formalParameterS-typeAnnotationS" $ optional typeAnnotationS
+  mbAssignment <- optional $ debugOpt "formalParameterS-assignmentS" paramAssignmentS
   pure $ case eiAnnotation of
-    Just annotation -> TypedParameterTP isOptional ident annotation
-    Nothing -> UntypedTP ident
+    Just annotation -> TypedParameterTP isOptional ident annotation mbAssignment
+    Nothing -> UntypedTP ident mbAssignment
+
+
+paramAssignmentS :: ScannerP TsxExpression
+paramAssignmentS = do
+  S.single "="
+  expressionS
 
 
 typeAnnotationS :: ScannerP TypeAnnotation
@@ -268,18 +313,22 @@ returnS = do
 lexicalDeclS :: ScannerP TsxStatement
 lexicalDeclS = do
   S.singleP "lexical_declaration"
-  varKind <- asum [
-      S.single "const" $> ConstVK
-      , S.single "let" $> LetVK
-      , S.single "var" $> VarVK
-    ]
-  LexicalDeclST varKind <$> debugOpt "lexicalDeclS-varDeclS" varDeclS
+  varKind <- varKindS
+  LexicalDeclST varKind <$> debugOpt "lexicalDeclS-varDeclS" (varDeclS `S.sepBy` S.single ",")
+
+varKindS :: ScannerP VarKind
+varKindS = asum [
+  S.single "const" $> ConstVK
+  , S.single "let" $> LetVK
+  , S.single "var" $> VarVK
+  ]
+
 
 variableDeclS :: ScannerP TsxStatement
 variableDeclS = do
   S.singleP "variable_declaration"
   S.single "var"
-  LexicalDeclST VarVK <$> debugOpt "lexicalDeclS-varDeclS" varDeclS
+  LexicalDeclST VarVK <$> debugOpt "lexicalDeclS-varDeclS" (varDeclS `S.sepBy` S.single ",")
 
 
 varDeclS :: ScannerP VarDecl
@@ -330,10 +379,137 @@ functionDeclStmtS = do
   S.singleP "function_declaration"
   FunctionDeclST <$> functionCoreDefS
 
+-- Auto-generated:
+switchS :: ScannerP TsxStatement
+switchS = do
+  S.singleP "switch_statement"
+  S.single "switch"
+  cond <- debugOpt "switchS-condition" expressionS
+  S.singleP "switch_body"
+  S.single "{"
+  cases <- debugOpt "switchS-cases" $ some caseS
+  mbDefault <- optional $ debugOpt "switchS-default" defaultS
+  S.single "}"
+  --  switchST TsxExpression [(TsxExpression, [TsxStatement])] (Maybe [TsxStatement])
+  pure $ SwitchST cond cases mbDefault
+
+
+caseS :: ScannerP (TsxExpression, [TsxStatement])
+caseS = do
+  S.singleP "switch_case"
+  S.single "case"
+  cond <- debugOpt "caseS-condition" expressionS
+  S.single ":"
+  statements <- debugOpt "caseS-statements" $ some statementS
+  pure (cond, statements)
+
+
+defaultS :: ScannerP [TsxStatement]
+defaultS = do
+  S.singleP "switch_default"
+  S.single "default"
+  S.single ":"
+  debugOpt "defaultS-statements" $ some statementS
+
+
+forS :: ScannerP TsxStatement
+forS = do
+  S.singleP "for_statement"
+  S.single "for"
+  S.single "("
+  init <- debugOpt "forS-init" forExprS
+  cond <- debugOpt "forS-condition" forExprS
+  update <- debugOpt "forS-update" expressionS
+  S.single ")"
+  body <- debugOpt "forS-body" statementS
+  pure $ ForST init cond update body
+
+
+forExprS :: ScannerP TsxExpression
+forExprS = do
+  S.singleP "expression_statement"
+  expr <- expressionS
+  S.single ";"
+  pure expr
+
+
+forOverS :: ScannerP TsxStatement
+forOverS = do
+  S.singleP "for_in_statement"
+  S.single "for"
+  S.single "("
+  -- TODO: store the varKind somewhere in the 'left' var declaration.
+  mbVarKind <- optional varKindS
+  varDecl <- debugOpt "forInS-left" simpleIdentifierS
+  overKind <- asum [ S.single "in" $> ForInSK
+        , S.single "of" $> ForOfSK
+    ]
+  right <- debugOpt "forInS-right" expressionS
+  S.single ")"
+  body <- debugOpt "forInS-body" statementS
+  pure $ ForOverST overKind varDecl right body
+
+
+doWhileS :: ScannerP TsxStatement
+doWhileS = do
+  S.singleP "do_statement"
+  S.single "do"
+  body <- debugOpt "doWhileS-body" statementS
+  S.single "while"
+  cond <- debugOpt "doWhileS-condition" expressionS
+  pure $ DoWhileST cond body
+
+whileS :: ScannerP TsxStatement
+whileS = do
+  S.singleP "while_statement"
+  S.single "while"
+  cond <- debugOpt "whileS-condition" expressionS
+  body <- debugOpt "whileS-body" statementS
+  pure $ WhileST cond body
+
+controlFlowS :: ScannerP TsxStatement
+controlFlowS = do
+  S.singleP "control_flow_statement"
+  ControlFlowST <$> asum [
+      S.single "break" $> BreakCFK
+      , do
+        S.single "continue"
+        ident <- debugOpt "controlFlowS-ident" simpleIdentifierS
+        pure $ ContinueCFK ident
+      , S.single "return" $> ReturnCFK
+      , S.single "throw" $> ThrowCFK
+    ]
+
+tryCatchFinallyS :: ScannerP TsxStatement
+tryCatchFinallyS = debugOpt "tryCatchFinallyS" $ do
+  S.singleP "try_statement"
+  S.single "try"
+  body <- debugOpt "tryCatchFinallyS-body" statementS
+  mbCatch <- optional $ debugOpt "tryCatchFinallyS-catchClause" $ do
+    S.singleP "catch_clause"
+    S.single "catch"
+    debugOpt "tryCatchFinallyS-catch" statementS
+  mbFinally <- optional $ debugOpt "tryCatchFinallyS-catchClause" $ do
+    S.singleP "finally_clause"
+    S.single "finally"
+    debugOpt "tryCatchFinallyS-finally" statementS
+  pure $ TryCatchFinallyST body mbCatch mbFinally
+
+labelS :: ScannerP TsxStatement
+labelS = do
+  S.singleP "label_statement"
+  S.single "label"
+  ident <- debugOpt "labelS-ident" simpleIdentifierS
+  S.single ":"
+  body <- debugOpt "labelS-body" statementS
+  pure $ LabelST ident body
+
+
 -- Expression parsing:
 
 expressionS :: ScannerP TsxExpression
-expressionS = asum [
+expressionS = do
+  expr <- asum [
     debugOpt "expressionS-parenExprS" parenExprS
     , debugOpt "expressionS-callExprS" callExprS
     , debugOpt "expressionS-memberExprS" (MemberAccessEX <$> memberExprS)
@@ -350,11 +526,17 @@ expressionS = asum [
     , debugOpt "expressionS-literalS" literalS
     , debugOpt "expressionS-varAccessEX" (VarAccessEX <$> simpleIdentifierS)
     , debugOpt "expressionS-assignmentEX" assignmentExprS
+    , debugOpt "expressionS-augmentedAssignmentEX" augmentedAssignmentExprS
     , debugOpt "expressionS-asTypeValueEX" asTypeValueS
     , debugOpt "expressionS-awaitEX" awaitExprS
     , debugOpt "expressionS-commentEX" commentS
     , debugOpt "expressionS-new" newExprS
-  ]
+    , debugOpt "expressionS-subscriptS" subscriptS
+    , debugOpt "expressionS-updateExprS" updateExprS
+    , debugOpt "expressionS-conditionalEX" regexS
+    ]
+  optional commentS
+  pure expr
 
 
 functionDefExprS :: ScannerP TsxExpression
@@ -381,7 +563,8 @@ callExprS = do
     ]
   -- TODO: parse type arguments:
   optional $ debugOpt "callExprS-typeArgs" typeArgsS
-  CallEX caller <$> debugOpt "callExprS-fctArgumentS" fctArgumentS
+  isNullGuarded <- optional $ debugOpt "callExprS-isNullGuarded" $ S.single "?."
+  CallEX caller (isJust isNullGuarded) <$> debugOpt "callExprS-fctArgumentS" fctArgumentS
 
 {- TODO:
   -- children of type_arguments:
@@ -403,7 +586,11 @@ memberExprS = do
       , CallMemberSel <$> debugOpt "memberExprS-callExprS" callExprS
       , NonNullSel <$> debugOpt "memberExprS-nonNullExprS" nonNullExprS
       , SimpleMemberSel <$> debugOpt "memberExprS-simpleIdentifierS" simpleIdentifierS
-      , debugOpt "memberExprS-subscriptS" subscriptS
+      , NewMemberSel <$> debugOpt "memberExprS-newExprS" newExprS
+      , debugOpt "memberExprS-subscriptS" subscriptMemberS
+      , ParenMemberSel <$> debugOpt "memberExprS-parenExprS" parenExprS
+      , ArrayMemberSel <$> debugOpt "memberExprS-arrayMemberSelS" arrayExprS
+      , RegexMemberSel <$> debugOpt "memberExprS-regexMemberSelS" regexS
     ]
   isNullReady <- asum [ do
       S.single "."
@@ -416,12 +603,31 @@ memberExprS = do
   DottedMS ident isNullReady <$> debugOpt "memberExprS-ident" simpleIdentifierS
 
 
-subscriptS :: ScannerP MemberPrefix
-subscriptS = do
+subscriptS :: ScannerP TsxExpression
+subscriptS = debugOpt "subscriptS" $ do
   S.singleP "subscript_expression"
+  source <- debugOpt "subscriptS-srcExpr" expressionS
+  {-
   ident <- debugOpt "subscriptS-ident" $ asum [
-      SimpleMemberSel <$> debugOpt "subscriptS-simpleIdentifierS" simpleIdentifierS
+      VarAccessEX <$> debugOpt "subscriptS-simpleIdentifierS" simpleIdentifierS
       , subscriptS
+    ]
+  -}
+  S.single "["
+  expr <- debugOpt "subscriptS-expr" expressionS
+  S.single "]"
+  pure $ SubscriptEX source expr 
+
+
+
+subscriptMemberS :: ScannerP MemberPrefix
+subscriptMemberS = do
+  S.singleP "subscript_expression"
+  ident <- debugOpt "subscriptMemberS-ident" $ asum [
+      SimpleMemberSel <$> debugOpt "subscriptMemberS-simpleIdentifierS" simpleIdentifierS
+      , subscriptMemberS
+      , CallMemberSel <$> debugOpt "subscriptMemberS-callExprS" callExprS
+      , ComposedMemberSel <$> debugOpt "subscriptMemberS-memberExprS" memberExprS
     ]
   S.single "["
   expr <- debugOpt "subscriptS-expr" expressionS
@@ -442,7 +648,12 @@ fctArgumentS = do
 arrowFunctionS :: ScannerP TsxExpression
 arrowFunctionS = debugOpt "arrowFunctionS" $ do
   S.singleP "arrow_function"
-  params <- debugOpt "arrowFunctionS-formalParameterListS" formalParameterListS
+  params <- debugOpt "arrowFunctionS-formalParameterListS" $ asum [
+        do
+        ident <- debugOpt "arrowFunctionS-identifier" simpleIdentifierS
+        pure [UntypedTP (IdentifierP ident) Nothing]
+      , formalParameterListS
+    ] 
   S.single "=>"
   body <- debugOpt "arrowFunctionS-body" $ asum [
       StmtBodyAF <$> stmtBlockS
@@ -450,6 +661,28 @@ arrowFunctionS = debugOpt "arrowFunctionS" $ do
     ]
   pure $ ArrowFunctionEX params body
 
+updateExprS :: ScannerP TsxExpression
+updateExprS = do
+  S.singleP "update_expression"
+  preUpdate <- optional unaryOperatorS
+  expr <- debugOpt "updateExprS-expr" expressionS
+  case preUpdate of
+    Just op -> pure $ UnaryEX op expr
+    Nothing -> do
+      op <- asum [
+          S.single "++" $> IncrementPO
+        , S.single "--" $> DecrementPO
+        ]
+      pure $ UpdateEX op expr
+
+regexS :: ScannerP TsxExpression
+regexS = do
+  S.singleP "regex"
+  S.single "/"
+  pattern <- S.symbol "regex_pattern"
+  S.single "/"
+  flags <- S.symbol "regex_flags"
+  pure $ RegexEX pattern flags
 
 -- JSX elements parsing:
 jsxElementS :: ScannerP JsxElement
@@ -575,12 +808,15 @@ instanceExprS = debugOpt "instanceExprS" $ do
 
 
 instanceValuesS :: ScannerP InstanceValue
-instanceValuesS = asum [
+instanceValuesS = do
+  optional commentS
+  value <- asum [
     pairS
     , methodDefS
     , VarAccessIV <$> debugOpt "instanceValuesS-varAccessEX" simpleIdentifierS
-  ]
-
+    ]
+  optional commentS
+  pure value
 
 pairS :: ScannerP InstanceValue
 pairS = debugOpt "pairS" $ do
@@ -703,7 +939,36 @@ assignmentExprS = do
   lhs <- debugOpt "assignmentExprS-lhs" expressionS
   S.single "="
   rhs <- debugOpt "assignmentExprS-rhs" expressionS
-  pure $ AssignmentEX lhs rhs
+  pure $ AssignmentEX AssignAO lhs rhs
+
+
+augmentedAssignmentExprS :: ScannerP TsxExpression
+augmentedAssignmentExprS = do
+  S.singleP "augmented_assignment_expression"
+  lhs <- debugOpt "augmentedAssignmentExprS-lhs" expressionS
+  op <- debugOpt "augmentedAssignmentExprS-op" assignmentOperatorS
+  rhs <- debugOpt "augmentedAssignmentExprS-rhs" expressionS
+  pure $ AssignmentEX op lhs rhs
+
+
+assignmentOperatorS :: ScannerP AssignmentOperator
+assignmentOperatorS = do
+  asum [
+      S.single "+=" $> PlusAssignAO
+    , S.single "-=" $> MinusAssignAO
+    , S.single "*=" $> TimesAssignAO
+    , S.single "/=" $> DivAssignAO
+    , S.single "%=" $> ModAssignAO
+    , S.single "**=" $> ExpAssignAO
+    , S.single "<<=" $> ShiftLeftAssignAO
+    , S.single ">>=" $> ShiftRightAssignAO
+    , S.single ">>>=" $> ShiftRightUnsignedAssignAO
+    , S.single "&=" $> BitAndAssignAO
+    , S.single "^=" $> BitXorAssignAO
+    , S.single "|=" $> BitOrAssignAO
+    , S.single "&=" $> AndAssignAO
+    ]
+
 
 asTypeValueS :: ScannerP TsxExpression
 asTypeValueS = do
@@ -778,11 +1043,11 @@ htmlCharRefS = do
 
 -- Identifiers:
 simpleIdentifierS :: ScannerP Identifier
-simpleIdentifierS = asum [
+simpleIdentifierS = debugOpt "simpleIdentifierS" $ asum [
       SimpleId <$> S.symbol "identifier"
       , ShortHandPatternId <$> S.symbol "shorthand_property_identifier_pattern"
       , ShortHandId <$> S.symbol "shorthand_property_identifier"
-      , PropertyId <$> S.symbol "property_identifier"
+      , debugOpt "simpleIdentifierS-propertyId" $ PropertyId <$> S.symbol "property_identifier"
       , SpreadElementId <$> do
           S.singleP "spread_element"
           S.single "..."

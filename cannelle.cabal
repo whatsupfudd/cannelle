@@ -30,6 +30,7 @@ library
       Cannelle.Cmm.Parsing.Error
       Cannelle.Cmm.Parsing.Statements
       Cannelle.Common.Error
+      Cannelle.Common.Serialize
       Cannelle.Common.TsAST
       Cannelle.Compiler.ConstantPool
       Cannelle.Compiler.Context
@@ -108,6 +109,7 @@ library
       Cannelle.Ruby.AST
       Cannelle.Ruby.Parse
       Cannelle.Ruby.Parser
+      Cannelle.Ruby.Serialize
       Cannelle.Templog.AST
       Cannelle.Templog.Compiler.Context
       Cannelle.Templog.Compiler.GramParser

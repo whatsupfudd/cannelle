@@ -172,7 +172,7 @@ runPHP tplSrc dataSrc = do
           content <- Bs.readFile fn
           printPhpContext content stmts
     TemplateFromStdin ->
-      putStrLn $ "@[runPHP] TemplateFromStdin not supported yet."
+      putStrLn "@[runPHP] TemplateFromStdin not supported yet."
   pure ()
 
 

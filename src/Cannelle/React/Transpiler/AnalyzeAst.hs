@@ -243,13 +243,19 @@ typingD = \case
 
 typeParamD :: J.TypedParameter -> ParseState A.TypedParameter
 typeParamD = \case
-  J.TypedParameterTP asyncFlag param aType -> do
+  J.TypedParameterTP asyncFlag param aType mbInit -> do
     aParam <- untypedParamD param
     aType <- typingD aType
-    pure $ A.TypedParameterTP asyncFlag aParam aType
-  J.UntypedTP param -> do
+    pInit <- case mbInit of
+      Just init -> Just <$> expressionD init
+      Nothing -> pure Nothing
+    pure $ A.TypedParameterTP asyncFlag aParam aType pInit
+  J.UntypedTP param mbInit -> do
     aParam <- untypedParamD param
-    pure $ A.UntypedTP aParam
+    pInit <- case mbInit of
+      Just init -> Just <$> expressionD init
+      Nothing -> pure Nothing
+    pure $ A.UntypedTP aParam pInit
 
 
 untypedParamD :: J.Parameter -> ParseState A.Parameter
@@ -316,14 +322,15 @@ statementD stmt =
       let
         nIfStmt = A.IfST nExpr nStmt mbThenStmt
       pure $ A.StatementNd False False nIfStmt
-    J.SwitchST -> pure $ A.StatementNd False False A.SwitchST
-    J.ForST -> pure $ A.StatementNd False False A.ForST
-    J.ForInST -> pure $ A.StatementNd False False A.ForInST
-    J.ForOfST -> pure $ A.StatementNd False False A.ForOfST
-    J.DoWhileST -> pure $ A.StatementNd False False A.DoWhileST
-    J.ControlFlowST -> pure $ A.StatementNd False False A.ControlFlowST
-    J.TryCatchFinallyST -> pure $ A.StatementNd False False A.TryCatchFinallyST
-    J.LabelST -> pure $ A.StatementNd False False A.LabelST
+    -- TODO: auto-generated, implement them:
+    J.SwitchST {} -> pure $ A.StatementNd False False A.SwitchST
+    J.ForST {} -> pure $ A.StatementNd False False A.ForST
+    J.ForOverST {} -> pure $ A.StatementNd False False A.ForInST
+    J.DoWhileST {} -> pure $ A.StatementNd False False A.DoWhileST
+    J.WhileST {} -> pure $ A.StatementNd False False A.WhileST
+    J.ControlFlowST {} -> pure $ A.StatementNd False False A.ControlFlowST
+    J.TryCatchFinallyST {} -> pure $ A.StatementNd False False A.TryCatchFinallyST
+    J.LabelST {} -> pure $ A.StatementNd False False A.LabelST
 
     J.ExportST isDefault expItem ->
       case expItem of
@@ -394,6 +401,11 @@ statementD stmt =
                     Right derefIdx ->
                       Right (isType, derefIdx, Nothing)
                 ) namedEntries
+              J.NamespaceIK idx ->
+                case derefContent "NamespaceIK not found" idx identMap of
+                  Left err -> [ Left err ]
+                  Right derefIdx ->
+                    [ Right (False, derefIdx, Nothing) ]
               J.EntireFileIK _ ->
                 [ Left "EntireFileIK not handled" ]
       
@@ -412,6 +424,7 @@ statementD stmt =
               importKind <- case aKind of
                   J.SingleIK idx -> pure $ A.SingleIK idx
                   J.NamedIK namedEntries -> pure $ A.NamedIK namedEntries
+                  J.NamespaceIK idx -> pure $ A.NamespaceIK idx
                   J.EntireFileIK strValue -> do
                     A.EntireFileIK <$> stringValueD strValue
               pure $ Just importKind
@@ -434,8 +447,8 @@ statementD stmt =
         J.ConstVK -> pure A.ConstVK
         J.LetVK -> pure A.LetVK
         J.VarVK -> pure A.VarVK
-      aVarDecl <- varDeclD varDecl
-      pure $ A.StatementNd False False $ A.LexicalDeclST aVarKind aVarDecl
+      varDecl <- mapM varDeclD varDecl
+      pure $ A.StatementNd False False $ A.LexicalDeclST aVarKind varDecl
     J.FunctionDeclST expr -> do
       aExpr <- expressionD expr
       pure $ A.StatementNd False False $ A.FunctionDeclST aExpr
@@ -496,20 +509,20 @@ expressionD expr =
       pure $ A.ExpressionNd False False $ A.UnaryEX (convUnaryOp op) aExpr
     J.PrimaryEX ->
       throwError "PrimaryEX not handled"
-    J.AssignmentEX lhs rhs -> do
+    J.AssignmentEX op lhs rhs -> do
       aLhs <- expressionD lhs
       aRhs <- expressionD rhs
-      pure $ A.ExpressionNd False False $ A.AssignmentEX aLhs aRhs
+      pure $ A.ExpressionNd False False $ A.AssignmentEX (convAssignmentOp op) aLhs aRhs
     J.PropAssignEX ->
       throwError "PropAssignEX not handled"
     J.GetAccessorEX ->
       throwError "GetAccessorEX not handled"
     J.SetAccessorEX ->
       throwError "SetAccessorEX not handled"
-    J.CallEX callerSpec args -> do
+    J.CallEX callerSpec isNullGuarded args -> do
       aCallerSpec <- callerSpecD callerSpec
       aArgs <- mapM expressionD args
-      pure $ A.ExpressionNd False False $ A.CallEX aCallerSpec aArgs
+      pure $ A.ExpressionNd False False $ A.CallEX aCallerSpec isNullGuarded aArgs
     J.FunctionDefEX isAsync mbIdent params mbType body ->
       functionDefD isAsync mbIdent params mbType body
     J.ArrowFunctionEX params body -> do
@@ -562,6 +575,17 @@ expressionD expr =
       aIdent <- identifierD ident
       aArgs <- mapM expressionD args
       pure $ A.ExpressionNd False False $ A.NewEX aIdent aArgs
+    J.UpdateEX op expr -> do
+      aExpr <- expressionD expr
+      pure $ A.ExpressionNd False False $ A.UpdateEX (convUnaryOp op) aExpr
+    J.RegexEX pattern flags -> do
+      pure $ A.ExpressionNd False False $ A.RegexEX pattern flags
+    J.SubscriptEX expr subscript -> do
+      aExpr <- expressionD expr
+      aSubscript <- expressionD subscript
+      pure $ A.ExpressionNd False False $ A.SubscriptEX aExpr aSubscript
+    _ ->
+      throwError $ "@[expressionD] unhandled expression: " <> show expr
 
 elementD :: J.JsxElement -> ParseState A.ElementNd
 elementD jsxElement = do
@@ -702,6 +726,18 @@ memberPrefixD prefix =
       aPrefix <- memberPrefixD prefix
       aExpr <- expressionD expr
       pure $ A.SubscriptMemberSel aPrefix aExpr
+    J.NewMemberSel expr -> do
+      aExpr <- expressionD expr
+      pure $ A.NewMemberSel aExpr
+    J.ParenMemberSel expr -> do
+      aExpr <- expressionD expr
+      pure $ A.ParenMemberSel aExpr
+    J.ArrayMemberSel expr -> do
+      aExpr <- expressionD expr
+      pure $ A.ArrayMemberSel aExpr
+    J.RegexMemberSel expr -> do
+      aExpr <- expressionD expr
+      pure $ A.RegexMemberSel aExpr
 
 
 assigneeD :: J.VarAssignee -> ParseState A.VarAssignee
@@ -832,6 +868,22 @@ convDefinedType = \case
   J.NumberDT -> A.NumberDT
   J.BooleanDT -> A.BooleanDT
 
+convAssignmentOp :: J.AssignmentOperator -> A.AssignmentOperator
+convAssignmentOp = \case
+  J.AssignAO -> A.AssignAO
+  J.PlusAssignAO -> A.PlusAssignAO
+  J.MinusAssignAO -> A.MinusAssignAO
+  J.TimesAssignAO -> A.TimesAssignAO
+  J.DivAssignAO -> A.DivAssignAO
+  J.ModAssignAO -> A.ModAssignAO
+  J.ExpAssignAO -> A.ExpAssignAO
+  J.ShiftLeftAssignAO -> A.ShiftLeftAssignAO
+  J.ShiftRightAssignAO -> A.ShiftRightAssignAO
+  J.ShiftRightUnsignedAssignAO -> A.ShiftRightUnsignedAssignAO
+  J.BitAndAssignAO -> A.BitAndAssignAO
+  J.BitXorAssignAO -> A.BitXorAssignAO
+  J.BitOrAssignAO -> A.BitOrAssignAO
+  J.AndAssignAO -> A.AndAssignAO
 
 {-
 Second phase, import missing symbols.

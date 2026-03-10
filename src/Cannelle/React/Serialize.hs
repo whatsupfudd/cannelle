@@ -15,6 +15,7 @@ import Cannelle.React.AST
 import Control.Monad (replicateM, unless, when)
 import Data.Binary.Get ( Get, getByteString, getWord8, getWord16be, getWord32be, getWord64be, runGetOrFail)
 import Data.Bits ((.&.), (.|.), shiftL, shiftR)
+import Data.ByteString.Builder
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -22,7 +23,6 @@ import Data.Int (Int64)
 import qualified Data.List as L
 import qualified Data.Map.Strict as M
 import Data.Word (Word8, Word16, Word32, Word64)
-import Data.ByteString.Builder
 
 
 -- | File layout:
@@ -73,73 +73,61 @@ defaultSerializeOptions =
     }
 
 serializeTsxAst :: SerializeOptions -> [TsxTopLevel] -> ByteString
-serializeTsxAst options =
-  LBS.toStrict . serializeTsxAstLazy options
+serializeTsxAst options = LBS.toStrict . serializeTsxAstLazy options
+
 
 serializeTsxAstLazy :: SerializeOptions -> [TsxTopLevel] -> LBS.ByteString
 serializeTsxAstLazy options roots =
-  let rootBuffers = fmap (toLazyByteString . encodeTsxTopLevel) roots
+  let
+    rootBuffers = fmap (toLazyByteString . encodeTsxTopLevel) roots
+    rawImportsByRoot = fmap importsOfTopLevel roots
+    rawExportsByRoot = fmap exportsOfTopLevel roots
+    summaries = zipWith3 mkTopLevelSummary roots rawImportsByRoot rawExportsByRoot
+    importIndex = concat $ zipWith attachImportOrdinals [0 :: Int ..] rawImportsByRoot
+    exportIndex = concat $ zipWith attachExportOrdinals [0 :: Int ..] rawExportsByRoot
 
-      rawImportsByRoot = fmap importsOfTopLevel roots
-      rawExportsByRoot = fmap exportsOfTopLevel roots
+    sections =
+      [ Section
+          { sectionId = sectionTopLevelSummary
+          , sectionBytes =
+              toLazyByteString $
+                putList encodeTopLevelSummary summaries
+          }
+      , Section
+          { sectionId = sectionTopLevelOffsets
+          , sectionBytes =
+              toLazyByteString $
+                encodeRootOffsets rootBuffers
+          }
+      , Section
+          { sectionId = sectionImportIndex
+          , sectionBytes =
+              toLazyByteString $
+                putList encodeImportIndexEntry importIndex
+          }
+      , Section
+          { sectionId = sectionExportIndex
+          , sectionBytes =
+              toLazyByteString $
+                putList encodeExportIndexEntry exportIndex
+          }
+      , Section
+          { sectionId = sectionRootPayload
+          , sectionBytes = mconcat rootBuffers
+          }
+      ]
 
-      summaries =
-        zipWith3
-          mkTopLevelSummary
-          roots
-          rawImportsByRoot
-          rawExportsByRoot
+    positionedSections = positionSections sections
 
-      importIndex =
-        concat $
-          zipWith attachImportOrdinals [0 :: Int ..] rawImportsByRoot
-
-      exportIndex =
-        concat $
-          zipWith attachExportOrdinals [0 :: Int ..] rawExportsByRoot
-
-      sections =
-        [ Section
-            { sectionId = sectionTopLevelSummary
-            , sectionBytes =
-                toLazyByteString $
-                  putList encodeTopLevelSummary summaries
-            }
-        , Section
-            { sectionId = sectionTopLevelOffsets
-            , sectionBytes =
-                toLazyByteString $
-                  encodeRootOffsets rootBuffers
-            }
-        , Section
-            { sectionId = sectionImportIndex
-            , sectionBytes =
-                toLazyByteString $
-                  putList encodeImportIndexEntry importIndex
-            }
-        , Section
-            { sectionId = sectionExportIndex
-            , sectionBytes =
-                toLazyByteString $
-                  putList encodeExportIndexEntry exportIndex
-            }
-        , Section
-            { sectionId = sectionRootPayload
-            , sectionBytes = mconcat rootBuffers
-            }
-        ]
-
-      positionedSections = positionSections sections
-
-      headerBytes =
-        renderHeader
-          options
-          (length roots)
-          (length importIndex)
-          (length exportIndex)
-          positionedSections
+    headerBytes =
+      renderHeader
+        options
+        (length roots)
+        (length importIndex)
+        (length exportIndex)
+        positionedSections
   in
-    headerBytes <> foldMap (\sec -> sec.posSectionBytes) positionedSections
+  headerBytes <> foldMap (\sec -> sec.posSectionBytes) positionedSections
 
 --------------------------------------------------------------------------------
 -- Internal index rows
@@ -484,13 +472,14 @@ encodeFieldSpecification = \case
 
 encodeTypedParameter :: TypedParameter -> Builder
 encodeTypedParameter = \case
-  TypedParameterTP isOptional paramValue typeValue ->
+  TypedParameterTP isOptional paramValue typeValue mbInit ->
        word8 0
     <> putBool isOptional
     <> encodeParameter paramValue
     <> encodeTypeAnnotation typeValue
-  UntypedTP paramValue ->
-    word8 1 <> encodeParameter paramValue
+    <> putMaybe encodeTsxExpression mbInit
+  UntypedTP paramValue mbInit ->
+    word8 1 <> encodeParameter paramValue <> putMaybe encodeTsxExpression mbInit
 
 encodeTypeAnnotation :: TypeAnnotation -> Builder
 encodeTypeAnnotation = \case
@@ -522,29 +511,11 @@ encodeTsxStatement = \case
     word8 0 <> putList encodeTsxStatement statements
   ExpressionST exprValue ->
     word8 1 <> encodeTsxExpression exprValue
-  DeclarationST ->
-    word8 2
   IfST condExpr thenStmt maybeElseStmt ->
        word8 3
     <> encodeTsxExpression condExpr
     <> encodeTsxStatement thenStmt
     <> putMaybe encodeTsxStatement maybeElseStmt
-  SwitchST ->
-    word8 4
-  ForST ->
-    word8 5
-  ForInST ->
-    word8 6
-  ForOfST ->
-    word8 7
-  DoWhileST ->
-    word8 8
-  ControlFlowST ->
-    word8 9
-  TryCatchFinallyST ->
-    word8 10
-  LabelST ->
-    word8 11
   ExportST defaultFlag itemValue ->
     word8 12 <> putBool defaultFlag <> encodeExportItem itemValue
   ImportST isTypeOnly kindValue sourceValue ->
@@ -555,11 +526,28 @@ encodeTsxStatement = \case
   ReturnST maybeExpr ->
     word8 14 <> putMaybe encodeTsxExpression maybeExpr
   LexicalDeclST kindValue declValue ->
-    word8 15 <> encodeVarKind kindValue <> encodeVarDecl declValue
+    word8 15 <> encodeVarKind kindValue <> putList encodeVarDecl declValue
   FunctionDeclST exprValue ->
     word8 16 <> encodeTsxExpression exprValue
   CommentST commentIx ->
     word8 17 <> putVarInt commentIx
+  -- Auto-generated: TODO: implement these.
+  DeclarationST {} ->
+    word8 2
+  SwitchST {} ->
+    word8 4
+  ForST {} ->
+    word8 5
+  ForOverST {} ->
+    word8 6
+  DoWhileST {} ->
+    word8 7
+  ControlFlowST {} ->
+    word8 8
+  TryCatchFinallyST {} ->
+    word8 9
+  LabelST {} ->
+    word8 10
 
 encodeVarKind :: VarKind -> Builder
 encodeVarKind = \case
@@ -628,16 +616,16 @@ encodeTsxExpression = \case
     word8 2 <> encodePrefixOperator opValue <> encodeTsxExpression exprValue
   PrimaryEX ->
     word8 3
-  AssignmentEX leftExpr rightExpr ->
-    word8 4 <> encodeTsxExpression leftExpr <> encodeTsxExpression rightExpr
+  AssignmentEX op leftExpr rightExpr ->
+    word8 4 <> encodeAssignmentOperator op <> encodeTsxExpression leftExpr <> encodeTsxExpression rightExpr
   PropAssignEX ->
     word8 5
   GetAccessorEX ->
     word8 6
   SetAccessorEX ->
     word8 7
-  CallEX callerValue arguments ->
-    word8 8 <> encodeCallerSpec callerValue <> putList encodeTsxExpression arguments
+  CallEX callerValue isNullGuarded arguments ->
+    word8 8 <> encodeCallerSpec callerValue <> putBool isNullGuarded <> putList encodeTsxExpression arguments
   FunctionDefEX isAsync maybeName params maybeReturnType bodyStatements ->
        word8 9
     <> putBool isAsync
@@ -671,6 +659,10 @@ encodeTsxExpression = \case
     word8 21 <> putVarInt commentIx
   NewEX identValue arguments ->
     word8 22 <> encodeIdentifier identValue <> putList encodeTsxExpression arguments
+  SubscriptEX exprValue subscriptValue ->
+    word8 23 <> encodeTsxExpression exprValue <> encodeTsxExpression subscriptValue
+  RegexEX pattern flags ->
+    word8 24 <> putVarInt pattern <> putVarInt flags
 
 encodeArrowFunctionBody :: ArrowFunctionBody -> Builder
 encodeArrowFunctionBody = \case
@@ -706,6 +698,8 @@ encodeMemberPrefix = \case
     word8 3 <> encodeTsxExpression exprValue
   SubscriptMemberSel prefixValue exprValue ->
     word8 4 <> encodeMemberPrefix prefixValue <> encodeTsxExpression exprValue
+  NewMemberSel exprValue ->
+    word8 5 <> encodeTsxExpression exprValue
 
 encodeJsxElement :: JsxElement -> Builder
 encodeJsxElement = \case
@@ -887,6 +881,37 @@ encodeIdentifier = \case
   SpreadElementId exprValue ->
     word8 4 <> encodeTsxExpression exprValue
   
+
+encodeAssignmentOperator :: AssignmentOperator -> Builder
+encodeAssignmentOperator = \case
+  AssignAO ->
+    word8 0
+  PlusAssignAO ->
+    word8 1
+  MinusAssignAO ->
+    word8 2
+  TimesAssignAO ->
+    word8 3
+  DivAssignAO ->
+    word8 4
+  ModAssignAO ->
+    word8 5
+  ExpAssignAO ->
+    word8 6
+  ShiftLeftAssignAO ->
+    word8 7
+  ShiftRightAssignAO ->
+    word8 8
+  ShiftRightUnsignedAssignAO ->
+    word8 9
+  BitAndAssignAO ->
+    word8 10
+  BitXorAssignAO ->
+    word8 11
+  BitOrAssignAO ->
+    word8 12
+  AndAssignAO ->
+    word8 13
 
 ---------- DESERIALIZATION ----------
 
@@ -1228,8 +1253,8 @@ getTypedParameter :: Get TypedParameter
 getTypedParameter = do
   tag <- getWord8
   case tag of
-    0 -> TypedParameterTP <$> getBool <*> getParameter <*> getTypeAnnotation
-    1 -> UntypedTP <$> getParameter
+    0 -> TypedParameterTP <$> getBool <*> getParameter <*> getTypeAnnotation <*> getMaybe getTsxExpression
+    1 -> UntypedTP <$> getParameter <*> getMaybe getTsxExpression
     _ -> fail ("Unknown TypedParameter tag: " <> show tag)
 
 getTypeAnnotation :: Get TypeAnnotation
@@ -1259,23 +1284,25 @@ getTsxStatement = do
   case tag of
     0 -> CompoundST <$> getList getTsxStatement
     1 -> ExpressionST <$> getTsxExpression
-    2 -> pure DeclarationST
     3 -> IfST <$> getTsxExpression <*> getTsxStatement <*> getMaybe getTsxStatement
+    12 -> ExportST <$> getBool <*> getExportItem
+    13 -> ImportST <$> getBool <*> getMaybe getImportKind <*> getStringValue
+    14 -> ReturnST <$> getMaybe getTsxExpression
+    15 -> LexicalDeclST <$> getVarKind <*> getList getVarDecl
+    16 -> FunctionDeclST <$> getTsxExpression
+    17 -> CommentST <$> getVarInt
+    _ -> fail ("Unknown TsxStatement tag: " <> show tag)
+    -- TODO: implement these:
+    {-
+    2 -> pure DeclarationST
     4 -> pure SwitchST
     5 -> pure ForST
-    6 -> pure ForInST
-    7 -> pure ForOfST
+    6 -> pure ForOverST
     8 -> pure DoWhileST
     9 -> pure ControlFlowST
     10 -> pure TryCatchFinallyST
     11 -> pure LabelST
-    12 -> ExportST <$> getBool <*> getExportItem
-    13 -> ImportST <$> getBool <*> getMaybe getImportKind <*> getStringValue
-    14 -> ReturnST <$> getMaybe getTsxExpression
-    15 -> LexicalDeclST <$> getVarKind <*> getVarDecl
-    16 -> FunctionDeclST <$> getTsxExpression
-    17 -> CommentST <$> getVarInt
-    _ -> fail ("Unknown TsxStatement tag: " <> show tag)
+    -}
 
 getVarKind :: Get VarKind
 getVarKind = do
@@ -1328,18 +1355,13 @@ getTsxExpression = do
     1 -> BinaryEX <$> getTsxExpression <*> getBinaryOperator <*> getTsxExpression
     2 -> UnaryEX <$> getPrefixOperator <*> getTsxExpression
     3 -> pure PrimaryEX
-    4 -> AssignmentEX <$> getTsxExpression <*> getTsxExpression
+    4 -> AssignmentEX <$> getAssignmentOperator <*> getTsxExpression <*> getTsxExpression
     5 -> pure PropAssignEX
     6 -> pure GetAccessorEX
     7 -> pure SetAccessorEX
-    8 -> CallEX <$> getCallerSpec <*> getList getTsxExpression
-    9 ->
-      FunctionDefEX
-        <$> getBool
-        <*> getMaybe getVarInt
-        <*> getList getTypedParameter
-        <*> getMaybe getTypeAnnotation
-        <*> getList getTsxStatement
+    8 -> CallEX <$> getCallerSpec <*> getBool <*> getList getTsxExpression
+    9 -> FunctionDefEX <$> getBool <*> getMaybe getVarInt <*> getList getTypedParameter
+              <*> getMaybe getTypeAnnotation <*> getList getTsxStatement
     10 -> ArrowFunctionEX <$> getList getTypedParameter <*> getArrowFunctionBody
     11 -> ParenEX <$> getTsxExpression
     12 -> NonNullEX <$> getTsxExpression
@@ -1353,6 +1375,8 @@ getTsxExpression = do
     20 -> AwaitEX <$> getTsxExpression
     21 -> CommentEX <$> getVarInt
     22 -> NewEX <$> getIdentifier <*> getList getTsxExpression
+    23 -> SubscriptEX <$> getTsxExpression <*> getTsxExpression
+    24 -> RegexEX <$> getVarInt <*> getVarInt
     _ -> fail ("Unknown TsxExpression tag: " <> show tag)
 
 getArrowFunctionBody :: Get ArrowFunctionBody
@@ -1528,3 +1552,23 @@ getIdentifier = do
     3 -> PropertyId <$> getVarInt
     4 -> SpreadElementId <$> getTsxExpression
     _ -> fail ("Unknown Identifier tag: " <> show tag)
+
+getAssignmentOperator :: Get AssignmentOperator
+getAssignmentOperator = do
+  tag <- getWord8
+  case tag of
+    0 -> pure AssignAO
+    1 -> pure PlusAssignAO
+    2 -> pure MinusAssignAO
+    3 -> pure TimesAssignAO
+    4 -> pure DivAssignAO
+    5 -> pure ModAssignAO
+    6 -> pure ExpAssignAO
+    7 -> pure ShiftLeftAssignAO
+    8 -> pure ShiftRightAssignAO
+    9 -> pure ShiftRightUnsignedAssignAO
+    10 -> pure BitAndAssignAO
+    11 -> pure BitXorAssignAO
+    12 -> pure BitOrAssignAO
+    13 -> pure AndAssignAO
+    _ -> fail ("Unknown AssignmentOperator tag: " <> show tag)

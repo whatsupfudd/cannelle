@@ -57,6 +57,7 @@ expression ::= ternary-expression
 				 | unary-expression
 				 | primary-expression
 				 | assignment-expression
+         | update-expression *??*
 
 Prefix operators are:
 prefix-expression ::= '+' null-join primary-expression
@@ -91,7 +92,7 @@ assignment-expression	::= primary-expression '=' expression
 				 | primary-expression "??=" expression
 
 The binary operators are expressed in the binary expressions:
-binary-expression		::= nullish-binary-expression
+binary-expression ::= nullish-binary-expression
 
 nullish-binary-expression	::= logical-or-binary-expression "??" nullish-binary-expression
 
@@ -128,6 +129,9 @@ multiplicative-binary-expression ::= unary-expression '*' multiplicative-binary-
 				 | unary-expression '%' multiplicative-binary-expression
 				 | unary-expression "**" multiplicative-binary-expression
 
+update-expression ::= primary-expression postfix-operator
+postfix-operator ::= '++' | '--'
+
 -- Missing:
 declaration-statement ::= ( "var" | "let" | "const" | "static" ) lvalue '=' expression [ ';' ]
 
@@ -157,8 +161,8 @@ data FieldSpecification =
   deriving Show
 
 data TypedParameter =
-  TypedParameterTP Bool Parameter TypeAnnotation
-  | UntypedTP Parameter
+  TypedParameterTP Bool Parameter TypeAnnotation (Maybe TsxExpression)
+  | UntypedTP Parameter (Maybe TsxExpression)
   deriving Show
 
 data TypeAnnotation =
@@ -179,27 +183,39 @@ data DefinedType =
 data TsxStatement =
   CompoundST [TsxStatement]
   | ExpressionST TsxExpression
-  | DeclarationST
   | IfST TsxExpression TsxStatement (Maybe TsxStatement)
-  | SwitchST
-  | ForST
-  | ForInST
-  | ForOfST
-  | DoWhileST
-  | ControlFlowST
-  | TryCatchFinallyST
-  | LabelST
+  -- Auto-generated:
+  | DeclarationST
+  | SwitchST TsxExpression [(TsxExpression, [TsxStatement])] (Maybe [TsxStatement])
+  | ForST TsxExpression TsxExpression TsxExpression TsxStatement
+  | ForOverST ForOverKind Identifier TsxExpression TsxStatement
+  | DoWhileST TsxExpression TsxStatement
+  | WhileST TsxExpression TsxStatement
+  | ControlFlowST ControlFlowKind
+  | TryCatchFinallyST TsxStatement (Maybe TsxStatement) (Maybe TsxStatement)
+  | LabelST Identifier TsxStatement
   -- Export defaultFlag Item-exported
   | ExportST Bool ExportItem
   | ImportST Bool (Maybe ImportKind) StringValue
   | ReturnST (Maybe TsxExpression)
   -- Where is this in the grammar?
-  | LexicalDeclST VarKind VarDecl
+  | LexicalDeclST VarKind [VarDecl]
   | FunctionDeclST TsxExpression      -- Always a FunctionDefEX.
   -- Warning, duplicates the CommentEX...
   | CommentST Int
   deriving Show
 
+data ForOverKind =
+  ForInSK
+  | ForOfSK
+  deriving Show
+
+data ControlFlowKind =
+  BreakCFK
+  | ContinueCFK Identifier
+  | ReturnCFK
+  | ThrowCFK
+  deriving Show
 
 data VarKind =
   ConstVK
@@ -230,6 +246,7 @@ data ImportKind =
   SingleIK Int
   -- True => type symbol.
   | NamedIK [ (Bool, Int) ]
+  | NamespaceIK Int
   | EntireFileIK StringValue
   deriving Show
 
@@ -237,13 +254,14 @@ data TsxExpression =
   TernaryEX TsxExpression TsxExpression TsxExpression
   | BinaryEX TsxExpression BinaryOperator TsxExpression
   | UnaryEX PrefixOperator TsxExpression
+  -- What is a PrimaryEX?
   | PrimaryEX
-  | AssignmentEX TsxExpression TsxExpression
+  | AssignmentEX AssignmentOperator TsxExpression TsxExpression
   -- TS:
   | PropAssignEX
   | GetAccessorEX
   | SetAccessorEX
-  | CallEX CallerSpec [TsxExpression]
+  | CallEX CallerSpec Bool [TsxExpression]
   | FunctionDefEX Bool (Maybe Int) [TypedParameter] (Maybe TypeAnnotation) [TsxStatement]
   | ArrowFunctionEX [TypedParameter] ArrowFunctionBody
   | ParenEX TsxExpression
@@ -259,6 +277,10 @@ data TsxExpression =
   | AwaitEX TsxExpression
   | CommentEX Int
   | NewEX Identifier [TsxExpression]
+  | SubscriptEX TsxExpression TsxExpression
+  -- Only Increment/Decrement are allowed in PrefixOperators:
+  | UpdateEX PrefixOperator TsxExpression
+  | RegexEX Int Int
   deriving Show
 
 
@@ -285,6 +307,11 @@ data MemberPrefix =
   | CallMemberSel TsxExpression
   | NonNullSel TsxExpression
   | SubscriptMemberSel MemberPrefix TsxExpression
+  | NewMemberSel TsxExpression
+  | ParenMemberSel TsxExpression
+  | ArrayMemberSel TsxExpression
+  | MemberExprSel TsxExpression
+  | RegexMemberSel TsxExpression
   deriving Show
 
 

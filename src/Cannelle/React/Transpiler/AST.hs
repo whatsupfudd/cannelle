@@ -34,8 +34,8 @@ data FieldSpecification =
   deriving Show
 
 data TypedParameter =
-  TypedParameterTP Bool Parameter TypeAnnotation
-  | UntypedTP Parameter
+  TypedParameterTP Bool Parameter TypeAnnotation (Maybe ExpressionNd)
+  | UntypedTP Parameter (Maybe ExpressionNd)
   deriving Show
 
 data TypeAnnotation =
@@ -72,6 +72,7 @@ data TsxStatement =
   | ForInST
   | ForOfST
   | DoWhileST
+  | WhileST
   | ControlFlowST
   | TryCatchFinallyST
   | LabelST
@@ -80,7 +81,7 @@ data TsxStatement =
   | ImportST Bool (Maybe ImportKind) StringValue
   | ReturnST (Maybe ExpressionNd)
   -- Where is this in the grammar?
-  | LexicalDeclST VarKind VarDecl
+  | LexicalDeclST VarKind [VarDecl]
   | FunctionDeclST ExpressionNd      -- Always a FunctionDefEX.
   -- Warning, duplicates the CommentEX...
   | CommentST Int
@@ -115,6 +116,7 @@ data ImportKind =
   SingleIK Int
   -- True => type symbol.
   | NamedIK [ (Bool, Int) ]
+  | NamespaceIK Int
   | EntireFileIK StringValue
   deriving Show
 
@@ -132,12 +134,12 @@ data TsxExpression =
   | BinaryEX ExpressionNd BinaryOperator ExpressionNd
   | UnaryEX PrefixOperator ExpressionNd
   | PrimaryEX
-  | AssignmentEX ExpressionNd ExpressionNd
+  | AssignmentEX AssignmentOperator ExpressionNd ExpressionNd
   -- TS:
   | PropAssignEX
   | GetAccessorEX
   | SetAccessorEX
-  | CallEX CallerSpec [ExpressionNd]
+  | CallEX CallerSpec Bool [ExpressionNd]
   | FunctionDefEX Bool (Maybe Int) [TypedParameter] (Maybe TypeAnnotation) [StatementNd]
   | ArrowFunctionEX [TypedParameter] ArrowFunctionBody
   | ParenEX ExpressionNd
@@ -153,6 +155,9 @@ data TsxExpression =
   | AwaitEX ExpressionNd
   | CommentEX Int
   | NewEX Identifier [ExpressionNd]
+  | UpdateEX PrefixOperator ExpressionNd
+  | RegexEX Int Int
+  | SubscriptEX ExpressionNd ExpressionNd
   deriving Show
 
 
@@ -179,6 +184,10 @@ data MemberPrefix =
   | CallMemberSel ExpressionNd
   | NonNullSel ExpressionNd
   | SubscriptMemberSel MemberPrefix ExpressionNd
+  | NewMemberSel ExpressionNd
+  | ParenMemberSel ExpressionNd
+  | ArrayMemberSel ExpressionNd
+  | RegexMemberSel ExpressionNd
   deriving Show
 
 data ElementNd = ElementNd {

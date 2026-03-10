@@ -115,6 +115,7 @@ showStatement !level !stmt =
     ForInST -> indent <> "ForInST"
     ForOfST -> indent <> "ForOfST"
     DoWhileST -> indent <> "DoWhileST"
+    WhileST -> indent <> "WhileST"
     ControlFlowST -> indent <> "ControlFlowST"
     TryCatchFinallyST -> indent <> "TryCatchFinallyST"
     LabelST -> indent <> "LabelST"
@@ -132,7 +133,8 @@ showStatement !level !stmt =
           <> case mbExpr of
             Nothing -> ""
             Just anExpr -> showExpression (level + 1) anExpr
-    LexicalDeclST constFlag varDecl -> indent <> "LexicalDeclST " <> show constFlag <> " " <> showVarDecl level varDecl
+    LexicalDeclST constFlag varDecls -> indent <> "LexicalDeclST " <> show constFlag
+                <> " " <> intercalate "\n" (map (showVarDecl (succ level)) varDecls)
     FunctionDeclST funcDef -> indent <> "FunctionDeclST\n" <> showExpression (succ level) funcDef
     CommentST comment -> indent <> "CommentST " <> show comment
     _ -> "showStatement: unhandled statement: " <> show stmt
@@ -167,11 +169,11 @@ showExpression !level !expr =
     BinaryEX lhs op rhs -> indent <> "BinaryEX " <> showExpression (level + 1) lhs <> " " <> show op <> " " <> showExpression (level + 1) rhs
     UnaryEX op expr -> indent <> "UnaryEX " <> show op <> "\n" <> showExpression (level + 1) expr
     PrimaryEX -> indent <> "PrimaryEX"
-    AssignmentEX lhs rhs -> indent <> "AssignmentEX\n" <> showExpression (level + 1) lhs <> "\n" <> showExpression (level + 1) rhs
+    AssignmentEX op lhs rhs -> indent <> "AssignmentEX\n" <> show op <> " : " <> showExpression (level + 1) lhs <> "\n" <> showExpression (level + 1) rhs
     PropAssignEX -> indent <> "PropAssignEX"
     GetAccessorEX -> indent <> "GetAccessorEX"
     SetAccessorEX -> indent <> "SetAccessorEX"
-    CallEX selector args -> indent <> "CallEX " <> show selector <> "\n" <> intercalate "\n" (map (showExpression (succ level)) args)
+    CallEX selector isNullGuarded args -> indent <> "CallEX " <> show selector <> " " <> show isNullGuarded <> "\n" <> intercalate "\n" (map (showExpression (succ level)) args)
     FunctionDefEX asyncFlag ident params mbType body -> indent <> "FunctionDefEX "
             <> (if asyncFlag then "async " else " ") 
             <> show ident <> " " <> show params <> " " <> show mbType <> "\n"
@@ -192,6 +194,7 @@ showExpression !level !expr =
     AwaitEX expr -> indent <> "AwaitEX\n" <> showExpression (succ level) expr
     CommentEX value -> indent <> "CommentEX " <> show value
     NewEX ident args -> indent <> "NewEX " <> show ident <> " " <> show args
+    RegexEX pattern flags -> indent <> "RegexEX " <> show pattern <> " " <> show flags
     _ -> "showExpression: unhandled expression: " <> show expr
 
 
