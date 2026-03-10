@@ -14,13 +14,10 @@ import qualified Data.Vector as V
 
 import Cannelle.Html.Types
 
+
 --------------------------------------------------------------------------------
 -- Compact text lookup
 --------------------------------------------------------------------------------
-
--- | Compact text index:  -> (offset, length)
--- Offsets and lengths are in UTF-8 bytes within the compact text block.
-type CompactTextIndex = IntMap (Int32, Int32)
 
 lookupCompactText :: CompactTextIndex -> ByteString -> Int32 -> Either String Text
 lookupCompactText textIndex compactBlock textId =
@@ -98,6 +95,11 @@ renderHtmlNodeC textIndex compactBlock node =
   case node of
     TextEntryC textId ->
       lookupCompactText textIndex compactBlock textId
+
+    CommentEntryC textId ->
+      case lookupCompactText textIndex compactBlock textId of
+        Left err -> Left err
+        Right text -> pure ("<!--" <> text <> "-->")
 
     NodeHC {} -> do
       tagLabel <- tagCodeToLabel textIndex compactBlock node.tagIDC

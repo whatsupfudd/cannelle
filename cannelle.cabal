@@ -55,7 +55,7 @@ library
       Cannelle.Haskell.Types
       Cannelle.Html.Parser
       Cannelle.Html.Render
-      Cannelle.Html.Serialise
+      Cannelle.Html.Serialize
       Cannelle.Html.Types
       Cannelle.Hugo.ActionMerger
       Cannelle.Hugo.AST
@@ -91,7 +91,7 @@ library
       Cannelle.PHP.Parser.Types
       Cannelle.PHP.Print
       Cannelle.PHP.Render
-      Cannelle.PHP.Serialise
+      Cannelle.PHP.Serialize
       Cannelle.React.AST
       Cannelle.React.Parse
       Cannelle.React.Parser
@@ -99,6 +99,7 @@ library
       Cannelle.React.Parser.Support
       Cannelle.React.Parser.Types
       Cannelle.React.Print
+      Cannelle.React.Serialize
       Cannelle.React.Transpiler.AnalyzeAst
       Cannelle.React.Transpiler.AST
       Cannelle.React.Transpiler.ElmGen

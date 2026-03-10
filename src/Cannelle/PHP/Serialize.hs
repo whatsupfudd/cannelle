@@ -1,4 +1,4 @@
-module Cannelle.PHP.Serialise where
+module Cannelle.PHP.Serialize where
 
 import qualified Data.ByteString as Bs
 import qualified Data.ByteString.Lazy as Bsl

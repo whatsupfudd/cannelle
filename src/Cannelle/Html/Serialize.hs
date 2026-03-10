@@ -1,12 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
-module Cannelle.Html.Serialise where
+module Cannelle.Html.Serialize where
 
 import Control.Monad (unless, when, replicateM)
 import qualified Control.Monad.State.Strict as StS
 
 import Data.Binary.Put (putByteString, putInt32be, runPut, Put)
-import Data.Binary.Get( Get, getInt32be, isolate, runGetOrFail)
+import Data.Binary.Get( Get, getInt32be, isolate, runGetOrFail, getByteString)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -113,6 +113,161 @@ serializeCompactTextBlock entries = do
       out = runPut $ V.mapM_ putByteString utf8Entries
   pure (LBS.toStrict out)
 
+
+--------------------------------------------------------------------------------
+-- Text pool deserialisation
+--------------------------------------------------------------------------------
+
+-- | Reconstruct:
+--   * the compact text index: textId -> (offset, length)
+--   * the compact UTF-8 text block
+--
+-- Expected binary layout:
+--   [Int32BE lengthsTableByteLen]
+--   [Int32BE textBlockByteLen]
+--   [Int32BE text0Utf8Len]
+--   [Int32BE text1Utf8Len]
+--   ...
+--   [utf8(text0)]
+--   [utf8(text1)]
+--   ...
+deserializeTextPool :: ByteString -> Either String (CompactTextIndex, ByteString)
+deserializeTextPool bs =
+  case runGetOrFail getTextPoolPayload (LBS.fromStrict bs) of
+    Left (_, _, err) ->
+      Left ("deserializeTextPool: " <> err)
+
+    Right (rest, _, result)
+      | LBS.null rest ->
+          Right result
+      | otherwise ->
+          Left
+            ( "deserializeTextPool: trailing bytes remaining after decode: "
+                <> show (LBS.length rest)
+            )
+
+getTextPoolPayload :: Get (CompactTextIndex, ByteString)
+getTextPoolPayload = do
+  lengthsTableByteLen <- getNonNegativeBlockLen "lengths table"
+  textBlockByteLen    <- getNonNegativeBlockLen "text block"
+
+  when (lengthsTableByteLen `mod` 4 /= 0) $
+    fail
+      ( "lengths table byte length is not divisible by 4: "
+          <> show lengthsTableByteLen
+      )
+
+  let entryCount64 = lengthsTableByteLen `div` 4
+  when (entryCount64 > fromIntegral (maxBound :: Int)) $
+    fail
+      ( "too many text-pool entries: "
+          <> show entryCount64
+      )
+
+  let entryCount = fromIntegral entryCount64 :: Int
+
+  lengths <-
+    isolate (fromIntegral lengthsTableByteLen) $
+      replicateM entryCount getNonNegativeInt32Length
+
+  textBlock <-
+    isolate (fromIntegral textBlockByteLen) $
+      getByteString (fromIntegral textBlockByteLen)
+
+  index <-
+    case buildCompactTextIndexFromLengths (V.fromList lengths) (fromIntegral textBlockByteLen) of
+      Left err ->
+        fail err
+      Right idx ->
+        pure idx
+
+  pure (index, textBlock)
+
+--------------------------------------------------------------------------------
+-- Support logic
+--------------------------------------------------------------------------------
+
+getNonNegativeBlockLen :: String -> Get Int64
+getNonNegativeBlockLen label = do
+  n <- getInt32be
+  when (n < 0) $
+    fail
+      ( label
+          <> " byte length must be non-negative, got "
+          <> show n
+      )
+  pure (fromIntegral n)
+
+getNonNegativeInt32Length :: Get Int32
+getNonNegativeInt32Length = do
+  n <- getInt32be
+  when (n < 0) $
+    fail
+      ( "text segment length must be non-negative, got "
+          <> show n
+      )
+  pure n
+
+-- | Build:
+--     textId -> (offset, length)
+--
+-- Also validates that the sum of all lengths matches the declared text block size.
+buildCompactTextIndexFromLengths
+  :: V.Vector Int32
+  -> Int32
+  -> Either String CompactTextIndex
+buildCompactTextIndexFromLengths lengthsVec declaredTextBlockLen = go 0 0 IM.empty
+  where
+    totalEntries :: Int
+    totalEntries = V.length lengthsVec
+
+    go :: Int -> Int32 -> CompactTextIndex -> Either String CompactTextIndex
+    go ix currentOffset acc
+      | ix >= totalEntries =
+          if currentOffset == declaredTextBlockLen
+            then Right acc
+            else
+              Left
+                ( "buildCompactTextIndexFromLengths: summed text lengths ("
+                    <> show currentOffset
+                    <> ") do not match declared text block length ("
+                    <> show declaredTextBlockLen
+                    <> ")"
+                )
+
+      | otherwise =
+          case lengthsVec V.!? ix of
+            Nothing ->
+              Left
+                ( "buildCompactTextIndexFromLengths: invalid vector access at index "
+                    <> show ix
+                )
+
+            Just segLen -> do
+              let nextOffset64 =
+                    fromIntegral currentOffset + fromIntegral segLen :: Int64
+
+              whenInt64FitsInt32
+                "buildCompactTextIndexFromLengths: offset overflow"
+                nextOffset64
+
+              let textId = fromIntegral ix :: Int32
+                  acc' =
+                    IM.insert
+                      (fromIntegral textId)
+                      (currentOffset, segLen)
+                      acc
+
+              go (ix + 1) (fromIntegral nextOffset64) acc'
+
+whenInt64FitsInt32 :: String -> Int64 -> Either String ()
+whenInt64FitsInt32 label n
+  | n < fromIntegral (minBound :: Int32) =
+      Left (label <> ": below Int32 minimum: " <> show n)
+  | n > fromIntegral (maxBound :: Int32) =
+      Left (label <> ": above Int32 maximum: " <> show n)
+  | otherwise =
+      Right ()
 
 --------------------------------------------------------------------------------
 -- Serialisation of HtmlDocumentC

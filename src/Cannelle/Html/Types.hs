@@ -2,6 +2,7 @@
 module Cannelle.Html.Types where
 
 import Data.Int (Int32)
+import Data.IntMap.Strict (IntMap)
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -287,3 +288,8 @@ data AttributeC = AttributeC {
   , valueC :: !TextID
   }
   deriving (Eq, Show)
+
+
+-- | Compact text index:  -> (offset, length)
+-- Offsets and lengths are in UTF-8 bytes within the compact text block.
+type CompactTextIndex = IntMap (Int32, Int32)
