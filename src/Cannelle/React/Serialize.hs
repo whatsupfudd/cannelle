@@ -439,22 +439,14 @@ encodeExportIndexEntry entry =
 
 encodeTsxTopLevel :: TsxTopLevel -> Builder
 encodeTsxTopLevel = \case
-  StatementTL statementValue ->
-    word8 0 <> encodeTsxStatement statementValue
-  FunctionDeclTL exprValue ->
-    word8 1 <> encodeTsxExpression exprValue
-  ClassDeclTL ->
-    word8 2
-  TypeDeclTL identIx ->
-    word8 3 <> putVarInt identIx
-  EnumDeclTL ->
-    word8 4
-  ModuleDeclTL ->
-    word8 5
-  AmbientDeclTL ->
-    word8 6
-  InterfaceDeclTL ->
-    word8 7
+  StatementTL statementValue -> word8 0 <> encodeTsxStatement statementValue
+  FunctionDeclTL exprValue -> word8 1 <> encodeTsxExpression exprValue
+  ClassDeclTL -> word8 2
+  TypeDeclTL identIx -> word8 3 <> putVarInt identIx
+  EnumDeclTL -> word8 4
+  ModuleDeclTL -> word8 5
+  AmbientDeclTL -> word8 6
+  InterfaceDeclTL -> word8 7
 
 encodeParameter :: Parameter -> Builder
 encodeParameter = \case
@@ -462,6 +454,8 @@ encodeParameter = \case
     word8 0 <> putList encodeFieldSpecification fieldSpecs
   IdentifierP identValue ->
     word8 1 <> encodeIdentifier identValue
+  ArrayPatternP arrayPatterns ->
+    word8 2 <> putList encodeArrayPatternEntry arrayPatterns
 
 encodeFieldSpecification :: FieldSpecification -> Builder
 encodeFieldSpecification = \case
@@ -481,29 +475,21 @@ encodeTypedParameter = \case
   UntypedTP paramValue mbInit ->
     word8 1 <> encodeParameter paramValue <> putMaybe encodeTsxExpression mbInit
 
+
 encodeTypeAnnotation :: TypeAnnotation -> Builder
 encodeTypeAnnotation = \case
-  ObjectTypeTA ->
-    word8 0
-  ArrayTypeTA ->
-    word8 1
-  PredefinedTypeTA definedTypeValue ->
-    word8 2 <> encodeDefinedType definedTypeValue
-  TypeIdentifierTA identIx ->
-    word8 3 <> putVarInt identIx
-  NestedTA identValue identIx ->
-    word8 4 <> encodeIdentifier identValue <> putVarInt identIx
-  GenericTA ->
-    word8 5
+  ObjectTypeTA -> word8 0
+  ArrayTypeTA -> word8 1
+  PredefinedTypeTA definedTypeValue -> word8 2 <> encodeDefinedType definedTypeValue
+  TypeIdentifierTA identIx -> word8 3 <> putVarInt identIx
+  NestedTA identValue identIx -> word8 4 <> encodeIdentifier identValue <> putVarInt identIx
+  GenericTA -> word8 5
 
 encodeDefinedType :: DefinedType -> Builder
 encodeDefinedType = \case
-  StringDT ->
-    word8 0
-  NumberDT ->
-    word8 1
-  BooleanDT ->
-    word8 2
+  StringDT -> word8 0
+  NumberDT -> word8 1
+  BooleanDT -> word8 2
 
 encodeTsxStatement :: TsxStatement -> Builder
 encodeTsxStatement = \case
@@ -516,6 +502,25 @@ encodeTsxStatement = \case
     <> encodeTsxExpression condExpr
     <> encodeTsxStatement thenStmt
     <> putMaybe encodeTsxStatement maybeElseStmt
+  SwitchST condValue caseStmts mbDefaultStmts ->
+    word8 4 <> encodeTsxExpression condValue <> putList encodeSwitchCase caseStmts
+      <> case mbDefaultStmts of
+        Just defaultStmts -> word8 1 <> putList encodeTsxStatement defaultStmts
+        Nothing -> word8 0
+  ForST initValue condValue updateValue bodyValue ->
+    word8 5 <> encodeTsxExpression initValue <> encodeTsxExpression condValue <> encodeTsxExpression updateValue <> encodeTsxStatement bodyValue
+  ForOverST overKind paramValue sourceValue bodyValue ->
+    word8 6 <> encodeForOverKind overKind <> encodeParameter paramValue <> encodeTsxExpression sourceValue <> encodeTsxStatement bodyValue
+  DoWhileST condValue bodyValue ->
+    word8 7 <> encodeTsxExpression condValue <> encodeTsxStatement bodyValue
+  WhileST condValue bodyValue ->
+    word8 8 <> encodeTsxExpression condValue <> encodeTsxStatement bodyValue
+  ControlFlowST kindValue ->
+    word8 9 <> encodeControlFlowKind kindValue
+  TryCatchFinallyST bodyValue mbCatchValue mbFinallyValue ->
+    word8 10 <> encodeTsxStatement bodyValue <> putMaybe encodeCatchClause mbCatchValue <> putMaybe encodeTsxStatement mbFinallyValue
+  LabelST identValue bodyValue ->
+    word8 11 <> encodeIdentifier identValue <> encodeTsxStatement bodyValue
   ExportST defaultFlag itemValue ->
     word8 12 <> putBool defaultFlag <> encodeExportItem itemValue
   ImportST isTypeOnly kindValue sourceValue ->
@@ -531,47 +536,67 @@ encodeTsxStatement = \case
     word8 16 <> encodeTsxExpression exprValue
   CommentST commentIx ->
     word8 17 <> putVarInt commentIx
-  -- Auto-generated: TODO: implement these.
-  DeclarationST {} ->
-    word8 2
-  SwitchST {} ->
-    word8 4
-  ForST {} ->
-    word8 5
-  ForOverST {} ->
-    word8 6
-  DoWhileST {} ->
-    word8 7
-  ControlFlowST {} ->
-    word8 8
-  TryCatchFinallyST {} ->
-    word8 9
-  LabelST {} ->
-    word8 10
+  -- Auto-generated:
+  DeclarationST {} -> word8 2
+
+encodeSwitchCase :: (TsxExpression, [TsxStatement]) -> Builder
+encodeSwitchCase (condValue, bodyValue) =
+   encodeTsxExpression condValue <> putList encodeTsxStatement bodyValue
+
+encodeCatchClause :: (Maybe Identifier, TsxStatement) -> Builder
+encodeCatchClause (maybeIdentValue, bodyValue) =
+  putMaybe encodeIdentifier maybeIdentValue <> encodeTsxStatement bodyValue
+
+encodeForOverKind :: ForOverKind -> Builder
+encodeForOverKind = \case
+  ForInSK -> word8 0
+  ForOfSK -> word8 1
+
+encodeControlFlowKind :: ControlFlowKind -> Builder
+encodeControlFlowKind = \case
+  BreakCFK -> word8 0
+  ContinueCFK maybeIdentValue ->
+    word8 1 <> putMaybe encodeIdentifier maybeIdentValue
+  ReturnCFK -> word8 2
+  ThrowCFK exprValue -> word8 3 <> encodeTsxExpression exprValue
+
 
 encodeVarKind :: VarKind -> Builder
 encodeVarKind = \case
-  ConstVK ->
-    word8 0
-  LetVK ->
-    word8 1
-  VarVK ->
-    word8 2
+  ConstVK -> word8 0
+  LetVK -> word8 1
+  VarVK -> word8 2
 
 encodeVarDecl :: VarDecl -> Builder
-encodeVarDecl (VarDecl assigneeValue maybeType exprValue) =
+encodeVarDecl (VarDecl assigneeValue maybeType mbExprValue) =
      encodeVarAssignee assigneeValue
   <> putMaybe encodeTypeAnnotation maybeType
-  <> encodeTsxExpression exprValue
+  <> putMaybe encodeTsxExpression mbExprValue
 
 encodeVarAssignee :: VarAssignee -> Builder
 encodeVarAssignee = \case
   IdentifierA identValue ->
     word8 0 <> encodeIdentifier identValue
-  ObjectPatternA idents ->
-    word8 1 <> putList encodeIdentifier idents
-  ArrayPatternA idents ->
-    word8 2 <> putList encodeIdentifier idents
+  ObjectPatternA paramValue ->
+    word8 1 <> encodeParameter paramValue
+  ArrayPatternA arrayPatterns ->
+    word8 2 <> putList encodeArrayPatternEntry arrayPatterns
+
+
+encodeArrayPatternEntry :: ArrayPatternEntry -> Builder
+encodeArrayPatternEntry = \case
+  EmptySeq nbrEmpties ->
+    word8 0 <> putVarInt nbrEmpties
+  IdentSeq items ->
+    word8 1 <> putList encodeArrayPatternItem items
+
+
+encodeArrayPatternItem :: ArrayPatternItem -> Builder
+encodeArrayPatternItem = \case
+  IdentAPI identValue -> word8 0 <> encodeIdentifier identValue
+  SubscriptAPI exprValue -> word8 1 <> encodeTsxExpression exprValue
+  MemberAPI selectorValue -> word8 2 <> encodeMemberSelector selectorValue
+
 
 encodeExportItem :: ExportItem -> Builder
 encodeExportItem = \case
@@ -633,8 +658,8 @@ encodeTsxExpression = \case
     <> putList encodeTypedParameter params
     <> putMaybe encodeTypeAnnotation maybeReturnType
     <> putList encodeTsxStatement bodyStatements
-  ArrowFunctionEX params bodyValue ->
-    word8 10 <> putList encodeTypedParameter params <> encodeArrowFunctionBody bodyValue
+  ArrowFunctionEX isAsync params bodyValue ->
+    word8 10 <> putBool isAsync <> putList encodeTypedParameter params <> encodeArrowFunctionBody bodyValue
   ParenEX exprValue ->
     word8 11 <> encodeTsxExpression exprValue
   NonNullEX exprValue ->
@@ -657,12 +682,24 @@ encodeTsxExpression = \case
     word8 20 <> encodeTsxExpression exprValue
   CommentEX commentIx ->
     word8 21 <> putVarInt commentIx
-  NewEX identValue arguments ->
-    word8 22 <> encodeIdentifier identValue <> putList encodeTsxExpression arguments
-  SubscriptEX exprValue subscriptValue ->
-    word8 23 <> encodeTsxExpression exprValue <> encodeTsxExpression subscriptValue
-  RegexEX pattern flags ->
-    word8 24 <> putVarInt pattern <> putVarInt flags
+  NewEX templateValue arguments ->
+    word8 22 <> encodeNewTemplate templateValue <> putList encodeTsxExpression arguments
+  SubscriptEX isNull exprValue subscriptValue ->
+    word8 23 <> putBool isNull <> encodeTsxExpression exprValue <> encodeTsxExpression subscriptValue
+  RegexEX pattern mbFlags ->
+    word8 24 <> putVarInt pattern <> putMaybe putVarInt mbFlags
+  UndefinedEX -> word8 25
+  SequenceEX exprValues ->
+    word8 26 <> putList encodeTsxExpression exprValues
+  LexicalDeclEX varKind varDecls ->
+    word8 27 <> encodeVarKind varKind <> putList encodeVarDecl varDecls
+
+encodeNewTemplate :: NewTemplate -> Builder
+encodeNewTemplate = \case
+  IdentTP identValue ->
+    word8 0 <> encodeIdentifier identValue
+  ExprTP exprValue ->
+    word8 1 <> encodeTsxExpression exprValue
 
 encodeArrowFunctionBody :: ArrowFunctionBody -> Builder
 encodeArrowFunctionBody = \case
@@ -677,6 +714,7 @@ encodeCallerSpec = \case
     word8 0 <> encodeIdentifier identValue
   MemberCS selectorValue ->
     word8 1 <> encodeMemberSelector selectorValue
+  ImportCS -> word8 2
 
 encodeMemberSelector :: MemberSelector -> Builder
 encodeMemberSelector = \case
@@ -696,10 +734,12 @@ encodeMemberPrefix = \case
     word8 2 <> encodeTsxExpression exprValue
   NonNullSel exprValue ->
     word8 3 <> encodeTsxExpression exprValue
-  SubscriptMemberSel prefixValue exprValue ->
-    word8 4 <> encodeMemberPrefix prefixValue <> encodeTsxExpression exprValue
+  SubscriptMemberSel nullReady prefixValue exprValue ->
+    word8 4 <> putBool nullReady <> encodeMemberPrefix prefixValue <> encodeTsxExpression exprValue
   NewMemberSel exprValue ->
     word8 5 <> encodeTsxExpression exprValue
+  TemplateMemberSel literalValue ->
+    word8 6 <> encodeLiteralValue literalValue
 
 encodeJsxElement :: JsxElement -> Builder
 encodeJsxElement = \case
@@ -824,11 +864,13 @@ encodeBinaryOperator = \case
     word8 21
   ExpBO ->
     word8 22
+  InstanceofBO ->
+    word8 23
 
 encodeInstanceValue :: InstanceValue -> Builder
 encodeInstanceValue = \case
-  Pair identValue exprValue ->
-    word8 0 <> encodeIdentifier identValue <> encodeTsxExpression exprValue
+  Pair keyValue exprValue ->
+    word8 0 <> encodeKeyIdentifier keyValue <> encodeTsxExpression exprValue
   MethodDef identValue params statementValue ->
        word8 1
     <> encodeIdentifier identValue
@@ -837,25 +879,26 @@ encodeInstanceValue = \case
   VarAccessIV identValue ->
     word8 2 <> encodeIdentifier identValue
 
+encodeKeyIdentifier :: KeyIdentifier -> Builder
+encodeKeyIdentifier = \case
+  IdentKI identValue ->
+    word8 0 <> encodeIdentifier identValue
+  LiteralKI exprValue ->
+    word8 1 <> encodeTsxExpression exprValue
+
 encodeLiteralValue :: LiteralValue -> Builder
 encodeLiteralValue = \case
-  StringLT stringValue ->
-    word8 0 <> encodeStringValue stringValue
-  NumberLT numberValue ->
-    word8 1 <> putVarInt numberValue
-  BooleanLT boolValue ->
-    word8 2 <> putBool boolValue
-  StrTemplateLT fragments ->
-    word8 3 <> putList encodeStringFragment fragments
-  NullLT ->
-    word8 4
+  StringLT stringValue -> word8 0 <> encodeStringValue stringValue
+  NumberLT numberValue -> word8 1 <> putVarInt numberValue
+  BooleanLT boolValue -> word8 2 <> putBool boolValue
+  StrTemplateLT fragments -> word8 3 <> putList encodeStringFragment fragments
+  NullLT -> word8 4
+  ThisLT -> word8 5
 
 encodeStringValue :: StringValue -> Builder
 encodeStringValue = \case
-  QuotedStringSV fragments ->
-    word8 0 <> putList encodeStringFragment fragments
-  EmptyStringSV ->
-    word8 1
+  QuotedStringSV fragments -> word8 0 <> putList encodeStringFragment fragments
+  EmptyStringSV -> word8 1
 
 encodeStringFragment :: StringFragment -> Builder
 encodeStringFragment = \case
@@ -1239,6 +1282,7 @@ getParameter = do
   case tag of
     0 -> ObjectPatternP <$> getList getFieldSpecification
     1 -> IdentifierP <$> getIdentifier
+    2 -> ArrayPatternP <$> getList getArrayPatternEntry
     _ -> fail ("Unknown Parameter tag: " <> show tag)
 
 getFieldSpecification :: Get FieldSpecification
@@ -1278,6 +1322,7 @@ getDefinedType = do
     2 -> pure BooleanDT
     _ -> fail ("Unknown DefinedType tag: " <> show tag)
 
+
 getTsxStatement :: Get TsxStatement
 getTsxStatement = do
   tag <- getWord8
@@ -1285,6 +1330,19 @@ getTsxStatement = do
     0 -> CompoundST <$> getList getTsxStatement
     1 -> ExpressionST <$> getTsxExpression
     3 -> IfST <$> getTsxExpression <*> getTsxStatement <*> getMaybe getTsxStatement
+    4 -> SwitchST <$> getTsxExpression <*> getList getSwitchCase <*> do
+      mbDefault <- getWord8
+      case mbDefault of
+        0 -> pure Nothing
+        1 -> Just <$> getList getTsxStatement
+        _ -> fail ("Invalid default tag: " <> show mbDefault)
+    5 -> ForST <$> getTsxExpression <*> getTsxExpression <*> getTsxExpression <*> getTsxStatement
+    6 -> ForOverST <$> getForOverKind <*> getParameter <*> getTsxExpression <*> getTsxStatement
+    7 -> DoWhileST <$> getTsxExpression <*> getTsxStatement
+    8 -> WhileST <$> getTsxExpression <*> getTsxStatement
+    9 -> ControlFlowST <$> getControlFlowKind
+    10 -> TryCatchFinallyST <$> getTsxStatement <*> getMaybe getCatchClause <*> getMaybe getTsxStatement
+    11 -> LabelST <$> getIdentifier <*> getTsxStatement
     12 -> ExportST <$> getBool <*> getExportItem
     13 -> ImportST <$> getBool <*> getMaybe getImportKind <*> getStringValue
     14 -> ReturnST <$> getMaybe getTsxExpression
@@ -1292,17 +1350,35 @@ getTsxStatement = do
     16 -> FunctionDeclST <$> getTsxExpression
     17 -> CommentST <$> getVarInt
     _ -> fail ("Unknown TsxStatement tag: " <> show tag)
-    -- TODO: implement these:
-    {-
-    2 -> pure DeclarationST
-    4 -> pure SwitchST
-    5 -> pure ForST
-    6 -> pure ForOverST
-    8 -> pure DoWhileST
-    9 -> pure ControlFlowST
-    10 -> pure TryCatchFinallyST
-    11 -> pure LabelST
-    -}
+
+getSwitchCase :: Get (TsxExpression, [TsxStatement])
+getSwitchCase =
+  (,) <$> getTsxExpression <*> getList getTsxStatement
+
+
+getCatchClause :: Get (Maybe Identifier, TsxStatement)
+getCatchClause = do
+  (,) <$> getMaybe getIdentifier <*> getTsxStatement
+
+getForOverKind :: Get ForOverKind
+getForOverKind = do
+  tag <- getWord8
+  case tag of
+    0 -> pure ForInSK
+    1 -> pure ForOfSK
+    _ -> fail ("Unknown ForOverKind tag: " <> show tag)
+  
+getControlFlowKind :: Get ControlFlowKind
+getControlFlowKind = do
+  tag <- getWord8
+  case tag of
+    0 -> pure BreakCFK
+    1 -> ContinueCFK <$> getMaybe getIdentifier
+    2 -> pure ReturnCFK
+    3 -> ThrowCFK <$> getTsxExpression
+    _ -> fail ("Unknown ControlFlowKind tag: " <> show tag)
+
+
 
 getVarKind :: Get VarKind
 getVarKind = do
@@ -1315,15 +1391,15 @@ getVarKind = do
 
 getVarDecl :: Get VarDecl
 getVarDecl =
-  VarDecl <$> getVarAssignee <*> getMaybe getTypeAnnotation <*> getTsxExpression
+  VarDecl <$> getVarAssignee <*> getMaybe getTypeAnnotation <*> getMaybe getTsxExpression
 
 getVarAssignee :: Get VarAssignee
 getVarAssignee = do
   tag <- getWord8
   case tag of
     0 -> IdentifierA <$> getIdentifier
-    1 -> ObjectPatternA <$> getList getIdentifier
-    2 -> ArrayPatternA <$> getList getIdentifier
+    1 -> ObjectPatternA <$> getParameter
+    2 -> ArrayPatternA <$> getList getArrayPatternEntry
     _ -> fail ("Unknown VarAssignee tag: " <> show tag)
 
 getExportItem :: Get ExportItem
@@ -1362,7 +1438,7 @@ getTsxExpression = do
     8 -> CallEX <$> getCallerSpec <*> getBool <*> getList getTsxExpression
     9 -> FunctionDefEX <$> getBool <*> getMaybe getVarInt <*> getList getTypedParameter
               <*> getMaybe getTypeAnnotation <*> getList getTsxStatement
-    10 -> ArrowFunctionEX <$> getList getTypedParameter <*> getArrowFunctionBody
+    10 -> ArrowFunctionEX <$> getBool <*> getList getTypedParameter <*> getArrowFunctionBody
     11 -> ParenEX <$> getTsxExpression
     12 -> NonNullEX <$> getTsxExpression
     13 -> ArrayEX <$> getList getTsxExpression
@@ -1374,10 +1450,23 @@ getTsxExpression = do
     19 -> JsxElementEX <$> getJsxElement
     20 -> AwaitEX <$> getTsxExpression
     21 -> CommentEX <$> getVarInt
-    22 -> NewEX <$> getIdentifier <*> getList getTsxExpression
-    23 -> SubscriptEX <$> getTsxExpression <*> getTsxExpression
-    24 -> RegexEX <$> getVarInt <*> getVarInt
+    22 -> NewEX <$> getNewTemplate <*> getList getTsxExpression
+    23 -> SubscriptEX <$> getBool <*> getTsxExpression <*> getTsxExpression
+    24 -> RegexEX <$> getVarInt <*> getMaybe getVarInt
+    25 -> pure UndefinedEX
+    26 -> SequenceEX <$> getList getTsxExpression
+    27 -> LexicalDeclEX <$> getVarKind <*> getList getVarDecl
     _ -> fail ("Unknown TsxExpression tag: " <> show tag)
+
+
+getNewTemplate :: Get NewTemplate
+getNewTemplate = do
+  tag <- getWord8
+  case tag of
+    0 -> IdentTP <$> getIdentifier
+    1 -> ExprTP <$> getTsxExpression
+    _ -> fail ("Unknown NewTemplate tag: " <> show tag)
+
 
 getArrowFunctionBody :: Get ArrowFunctionBody
 getArrowFunctionBody = do
@@ -1393,6 +1482,7 @@ getCallerSpec = do
   case tag of
     0 -> SimpleIdentCS <$> getIdentifier
     1 -> MemberCS <$> getMemberSelector
+    2 -> pure ImportCS
     _ -> fail ("Unknown CallerSpec tag: " <> show tag)
 
 getMemberSelector :: Get MemberSelector
@@ -1410,7 +1500,8 @@ getMemberPrefix = do
     1 -> ComposedMemberSel <$> getMemberSelector
     2 -> CallMemberSel <$> getTsxExpression
     3 -> NonNullSel <$> getTsxExpression
-    4 -> SubscriptMemberSel <$> getMemberPrefix <*> getTsxExpression
+    4 -> SubscriptMemberSel <$> getBool <*> getMemberPrefix <*> getTsxExpression
+    6 -> TemplateMemberSel <$> getLiteralValue
     _ -> fail ("Unknown MemberPrefix tag: " <> show tag)
 
 getJsxElement :: Get JsxElement
@@ -1502,16 +1593,25 @@ getBinaryOperator = do
     20 -> pure DivBO
     21 -> pure ModBO
     22 -> pure ExpBO
+    23 -> pure InstanceofBO
     _ -> fail ("Unknown BinaryOperator tag: " <> show tag)
 
 getInstanceValue :: Get InstanceValue
 getInstanceValue = do
   tag <- getWord8
   case tag of
-    0 -> Pair <$> getIdentifier <*> getTsxExpression
+    0 -> Pair <$> getKeyIdentifier <*> getTsxExpression
     1 -> MethodDef <$> getIdentifier <*> getList getTypedParameter <*> getTsxStatement
     2 -> VarAccessIV <$> getIdentifier
     _ -> fail ("Unknown InstanceValue tag: " <> show tag)
+
+getKeyIdentifier :: Get KeyIdentifier
+getKeyIdentifier = do
+  tag <- getWord8
+  case tag of
+    0 -> IdentKI <$> getIdentifier
+    1 -> LiteralKI <$> getTsxExpression
+    _ -> fail ("Unknown KeyIdentifier tag: " <> show tag)
 
 getLiteralValue :: Get LiteralValue
 getLiteralValue = do
@@ -1522,6 +1622,7 @@ getLiteralValue = do
     2 -> BooleanLT <$> getBool
     3 -> StrTemplateLT <$> getList getStringFragment
     4 -> pure NullLT
+    5 -> pure ThisLT
     _ -> fail ("Unknown LiteralValue tag: " <> show tag)
 
 getStringValue :: Get StringValue
@@ -1572,3 +1673,21 @@ getAssignmentOperator = do
     12 -> pure BitOrAssignAO
     13 -> pure AndAssignAO
     _ -> fail ("Unknown AssignmentOperator tag: " <> show tag)
+
+
+getArrayPatternEntry :: Get ArrayPatternEntry
+getArrayPatternEntry = do
+  entry <- getWord8
+  case entry of
+    0 -> EmptySeq <$> getVarInt
+    1 -> IdentSeq <$> getList getArrayPatternItem
+    _ -> fail "Invalid array pattern entry"
+
+getArrayPatternItem :: Get ArrayPatternItem
+getArrayPatternItem = do
+  tag <- getWord8
+  case tag of
+    0 -> IdentAPI <$> getIdentifier
+    1 -> SubscriptAPI <$> getTsxExpression
+    2 -> MemberAPI <$> getMemberSelector
+    _ -> fail ("Unknown ArrayPatternItem tag: " <> show tag)

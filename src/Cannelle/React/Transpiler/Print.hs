@@ -112,11 +112,16 @@ showStatement !level !stmt =
           Nothing -> ""
     SwitchST -> indent <> "SwitchST"
     ForST -> indent <> "ForST"
-    ForInST -> indent <> "ForInST"
-    ForOfST -> indent <> "ForOfST"
+    ForOverST overKind iterDecl source body ->
+      indent <> "ForOverST " <> show overKind <> " " <> show iterDecl <> " " <> show source <> " " <> show body
     DoWhileST -> indent <> "DoWhileST"
     WhileST -> indent <> "WhileST"
-    ControlFlowST -> indent <> "ControlFlowST"
+    ControlFlowST kind -> indent <> "ControlFlowST "
+        <> case kind of
+          BreakCFK -> "Break"
+          ContinueCFK ident -> "Continue" <> maybe "" (\i -> " " <> show i) ident
+          ThrowCFK anExpr -> "Throw" <> showExpression (level + 1) anExpr
+          ReturnCFK -> "Return"
     TryCatchFinallyST -> indent <> "TryCatchFinallyST"
     LabelST -> indent <> "LabelST"
     ExportST isDefault item -> indent <> "ExportST "
@@ -141,11 +146,14 @@ showStatement !level !stmt =
 
 
 showVarDecl :: Int -> VarDecl -> String
-showVarDecl !level (VarDecl !ident !mbType !expr) =
+showVarDecl !level (VarDecl !ident !mbType !mbExpr) =
   let
     indent = replicate (level * 2) ' '
   in
-  indent <> "VarDecl " <> show ident <> " " <> show mbType <> "\n" <> showExpression (level + 1) expr
+  indent <> "VarDecl " <> show ident <> " " <> show mbType <> "\n"
+        <> case mbExpr of
+              Just expr -> "\n" <> showExpression (level + 1) expr
+              Nothing -> ""
 
 
 showTypeDecl :: Int -> TsxTopLevel -> String
@@ -178,10 +186,12 @@ showExpression !level !expr =
             <> (if asyncFlag then "async " else " ") 
             <> show ident <> " " <> show params <> " " <> show mbType <> "\n"
             <> intercalate "\n" (map (showStatement (succ level)) body)
-    ArrowFunctionEX params body -> indent <> "ArrowFunctionEX " <> show params <> "\n"
-          <> case body of
-            StmtBodyAF stmts -> intercalate "\n" (map (showStatement (succ level)) stmts)
-            ExprBodyAF expr -> showExpression (succ level) expr
+    ArrowFunctionEX asyncFlag params body -> indent <> "ArrowFunctionEX "
+            <> (if asyncFlag then "async " else " ") 
+            <> show params <> "\n"
+            <> case body of
+              StmtBodyAF stmts -> intercalate "\n" (map (showStatement (succ level)) stmts)
+              ExprBodyAF expr -> showExpression (succ level) expr
     ParenEX expr -> indent <> "ParenEX\n" <> showExpression (succ level) expr
     NonNullEX expr -> indent <> "NonNullEX\n" <> showExpression (succ level) expr
     ArrayEX exprs -> indent <> "ArrayEX\n" <> intercalate "\n" (map (showExpression (succ level)) exprs)
@@ -195,6 +205,10 @@ showExpression !level !expr =
     CommentEX value -> indent <> "CommentEX " <> show value
     NewEX ident args -> indent <> "NewEX " <> show ident <> " " <> show args
     RegexEX pattern flags -> indent <> "RegexEX " <> show pattern <> " " <> show flags
+    SubscriptEX isNull lhs rhs -> indent <> "SubscriptEX: " <> (if isNull then "?.\n" else "\n") <> showExpression (level + 1) lhs <> "\n" <> showExpression (level + 1) rhs
+    UndefinedEX -> indent <> "UndefinedEX"
+    SequenceEX exprs -> indent <> "SequenceEX\n" <> intercalate "\n" (map (showExpression (succ level)) exprs)
+    LexicalDeclEX varKind varDecls -> indent <> "LexicalDeclEX " <> show varKind <> " " <> intercalate "\n" (map (showVarDecl (succ level)) varDecls)
     _ -> "showExpression: unhandled expression: " <> show expr
 
 

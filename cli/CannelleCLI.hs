@@ -255,7 +255,7 @@ runHaskell rtOpts tplSrc dataSrc = do
         Left errMsg ->
           putStrLn $ "@[runHaskell] tsParseHaskell err: " <> show errMsg
         Right ctx -> do
-          putStrLn $ "@[runHaskell] got context."
+          putStrLn "@[runHaskell] got context."
     TemplateFromStdin ->
       putStrLn "@[runHaskell] TemplateFromStdin not supported yet."
   pure ()

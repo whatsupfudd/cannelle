@@ -23,8 +23,9 @@ data TsxTopLevel =
   deriving Show
 
 data Parameter =
-  ObjectPatternP [FieldSpecification]
-  | IdentifierP Identifier
+  IdentifierP Identifier
+  | ObjectPatternP [FieldSpecification]
+  | ArrayPatternP [ArrayPatternEntry]
   deriving Show
 
 
@@ -69,11 +70,10 @@ data TsxStatement =
   | IfST ExpressionNd StatementNd (Maybe StatementNd)
   | SwitchST
   | ForST
-  | ForInST
-  | ForOfST
+  | ForOverST ForOverKind Parameter ExpressionNd StatementNd
   | DoWhileST
   | WhileST
-  | ControlFlowST
+  | ControlFlowST ControlFlowKind
   | TryCatchFinallyST
   | LabelST
   -- Export defaultFlag Item-exported
@@ -87,6 +87,18 @@ data TsxStatement =
   | CommentST Int
   deriving Show
 
+data ForOverKind =
+  ForInSK
+  | ForOfSK
+  deriving Show
+
+data ControlFlowKind =
+  BreakCFK
+  | ContinueCFK (Maybe Identifier)
+  | ReturnCFK
+  | ThrowCFK ExpressionNd
+  deriving Show
+
 data VarKind =
   ConstVK
   | LetVK
@@ -94,15 +106,26 @@ data VarKind =
   deriving Show
 
 data VarDecl =
-  VarDecl VarAssignee (Maybe TypeAnnotation) ExpressionNd
+  VarDecl VarAssignee (Maybe TypeAnnotation) (Maybe ExpressionNd)
   deriving Show
 
 data VarAssignee =
   IdentifierA Identifier
-  | ObjectPatternA [Identifier]
-  | ArrayPatternA [Identifier]
+  | ObjectPatternA Parameter
+  | ArrayPatternA [ArrayPatternEntry]
   deriving Show
 
+data ArrayPatternEntry =
+  EmptySeq Int
+  | IdentSeq [ArrayPatternItem]
+  deriving Show
+
+
+data ArrayPatternItem =
+  IdentAPI Identifier
+  | SubscriptAPI ExpressionNd
+  | MemberAPI MemberSelector
+  deriving Show
 
 data ExportItem =
   IdentifierEI Identifier
@@ -141,7 +164,7 @@ data TsxExpression =
   | SetAccessorEX
   | CallEX CallerSpec Bool [ExpressionNd]
   | FunctionDefEX Bool (Maybe Int) [TypedParameter] (Maybe TypeAnnotation) [StatementNd]
-  | ArrowFunctionEX [TypedParameter] ArrowFunctionBody
+  | ArrowFunctionEX Bool [TypedParameter] ArrowFunctionBody
   | ParenEX ExpressionNd
   -- Where are those in the grammar definition?
   | NonNullEX ExpressionNd
@@ -154,10 +177,18 @@ data TsxExpression =
   | JsxElementEX ElementNd
   | AwaitEX ExpressionNd
   | CommentEX Int
-  | NewEX Identifier [ExpressionNd]
+  | NewEX NewTemplate [ExpressionNd]
   | UpdateEX PrefixOperator ExpressionNd
-  | RegexEX Int Int
-  | SubscriptEX ExpressionNd ExpressionNd
+  | RegexEX Int (Maybe Int)
+  | SubscriptEX Bool ExpressionNd ExpressionNd
+  | UndefinedEX
+  | SequenceEX [ExpressionNd]
+  | LexicalDeclEX VarKind [VarDecl]
+  deriving Show
+
+data NewTemplate =
+  IdentTP Identifier
+  | ExprTP ExpressionNd
   deriving Show
 
 
@@ -170,6 +201,8 @@ data ArrowFunctionBody =
 data CallerSpec =
   SimpleIdentCS Identifier
   | MemberCS MemberSelector
+  | ParenCS ExpressionNd
+  | ImportCS
   deriving Show
 
 
@@ -183,11 +216,12 @@ data MemberPrefix =
   | ComposedMemberSel MemberSelector
   | CallMemberSel ExpressionNd
   | NonNullSel ExpressionNd
-  | SubscriptMemberSel MemberPrefix ExpressionNd
+  | SubscriptMemberSel Bool MemberPrefix ExpressionNd
   | NewMemberSel ExpressionNd
   | ParenMemberSel ExpressionNd
   | ArrayMemberSel ExpressionNd
   | RegexMemberSel ExpressionNd
+  | TemplateMemberSel LiteralValue
   deriving Show
 
 data ElementNd = ElementNd {
@@ -288,15 +322,20 @@ data BinaryOperator =
   | DivBO
   | ModBO
   | ExpBO
+  | InstanceofBO
   deriving Show
 
 
 data InstanceValue = 
-  Pair Identifier ExpressionNd
+  Pair KeyIdentifier ExpressionNd
   | MethodDef Identifier [TypedParameter] StatementNd
   | VarAccessIV Identifier
   deriving Show
 
+data KeyIdentifier =
+  IdentKI Identifier
+  | LiteralKI ExpressionNd
+  deriving Show
 
 data LiteralValue =
   StringLT StringValue
@@ -304,6 +343,7 @@ data LiteralValue =
   | BooleanLT Bool
   | StrTemplateLT [StringFragment]
   | NullLT
+  | ThisLT
   deriving Show
 
 

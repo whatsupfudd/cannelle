@@ -143,11 +143,16 @@ showStatement !level !stmt =
         <> showExpression (level + 1) cond <> "\n"
         <> showStatement (succ level) body
     ControlFlowST controlFlowKind -> indent <> "ControlFlowST " <> show controlFlowKind
-    TryCatchFinallyST body catch finally -> indent <> "TryCatchFinallyST\n"
+    TryCatchFinallyST body mbCatch finally -> indent <> "TryCatchFinallyST\n"
         <> showStatement (succ level) body <> "\n"
-        <> case catch of
-          Just catchClause -> indent <> "catch: " <> showStatement (succ level) catchClause <> "\n"
-          Nothing -> ""
+        <> case mbCatch of
+             Nothing -> ""
+             Just (mbIdent, catchClause) ->
+              indent <> "catch: "
+              <> case mbIdent of
+                Nothing -> ""
+                Just ident -> show ident <> "\n"
+              <> showStatement (succ level) catchClause <> "\n"
         <> case finally of
           Just finallyClause -> indent <> "finally: " <> showStatement (succ level) finallyClause <> "\n"
           Nothing -> ""
@@ -182,11 +187,14 @@ showCase !level (cond, statements) =
 
 
 showVarDecl :: Int -> VarDecl -> String
-showVarDecl !level (VarDecl !ident !mbType !expr) =
+showVarDecl !level (VarDecl !ident !mbType !mbExpr) =
   let
     indent = replicate (level * 2) ' '
   in
-  indent <> "VarDecl " <> show ident <> " " <> show mbType <> "\n" <> showExpression (level + 1) expr
+  indent <> "VarDecl " <> show ident <> " " <> show mbType <> "\n"
+    <> case mbExpr of
+          Just expr -> "\n" <> showExpression (level + 1) expr
+          Nothing -> ""
 
 
 showTypeDecl :: Int -> TsxTopLevel -> String
@@ -219,10 +227,13 @@ showExpression !level !expr =
             <> (if asyncFlag then "async " else " ") 
             <> show ident <> " " <> show params <> " " <> show mbType <> "\n"
             <> intercalate "\n" (map (showStatement (succ level)) body)
-    ArrowFunctionEX params body -> indent <> "ArrowFunctionEX " <> show params <> "\n"
-          <> case body of
-            StmtBodyAF stmts -> intercalate "\n" (map (showStatement (succ level)) stmts)
-            ExprBodyAF expr -> showExpression (succ level) expr
+    ArrowFunctionEX asyncFlag params body -> indent <> "ArrowFunctionEX "
+              <> (if asyncFlag then "async " else " ") 
+              <> show params <> "\n"
+              <> (case body of
+                  StmtBodyAF stmts -> intercalate "\n" (map (showStatement (succ level)) stmts)
+                  ExprBodyAF expr -> showExpression (succ level) expr
+                )
     ParenEX expr -> indent <> "ParenEX\n" <> showExpression (succ level) expr
     NonNullEX expr -> indent <> "NonNullEX\n" <> showExpression (succ level) expr
     ArrayEX exprs -> indent <> "ArrayEX\n" <> intercalate "\n" (map (showExpression (succ level)) exprs)
@@ -230,13 +241,17 @@ showExpression !level !expr =
     LiteralEX value -> indent <> "LiteralEX " <> show value
     VarAccessEX ident -> indent <> "VarAccessEX " <> show ident
     MemberAccessEX selector -> indent <> "MemberAccessEX " <> show selector
-    JsxElementEX jsxElement -> showJsxElement (succ level) jsxElement
     AsTypeValueEX value typeAnnotation -> indent <> "AsTypeValueEX " <> showExpression (level + 1) value <> " " <> show typeAnnotation
+    JsxElementEX jsxElement -> showJsxElement (succ level) jsxElement
     AwaitEX expr -> indent <> "AwaitEX\n" <> showExpression (succ level) expr
     CommentEX value -> indent <> "CommentEX " <> show value
     NewEX ident args -> indent <> "NewEX " <> show ident <> " " <> show args
+    SubscriptEX isNull lhs rhs -> indent <> "SubscriptEX: " <> (if isNull then "?.\n" else "\n") <> showExpression (level + 1) lhs <> "\n" <> showExpression (level + 1) rhs
     UpdateEX op expr -> indent <> "UpdateEX " <> show op <> "\n" <> showExpression (succ level) expr
     RegexEX pattern flags -> indent <> "RegexEX " <> show pattern <> " " <> show flags
+    UndefinedEX -> indent <> "UndefinedEX"
+    SequenceEX exprs -> indent <> "SequenceEX\n" <> intercalate "\n" (map (showExpression (succ level)) exprs)
+    LexicalDeclEX varKind varDecls -> indent <> "LexicalDeclEX " <> show varKind <> " " <> intercalate "\n" (map (showVarDecl (succ level)) varDecls)
     _ -> "showExpression: unhandled expression: " <> show expr
 
 

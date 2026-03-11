@@ -169,14 +169,16 @@ statementG indent accum stmt =
 
 
 varDeclG :: Int -> VarDecl -> ElmRef (Either String Bs.ByteString)
-varDeclG indent varDecl@(VarDecl varAssignee mbType expr) = do
+varDeclG indent varDecl@(VarDecl varAssignee mbType mbExpr) = do
   let
     tabS = Bs.replicate indent 32  -- 32 = space
   tAssignee <- case varAssignee of
     IdentifierA ident ->
       identifierG ident
     _ -> pure . Left $ "@[varDeclG] un-implemented for: " <> show varAssignee
-  tExpr <- expressionG indent expr
+  tExpr <- case mbExpr of
+    Just expr -> expressionG indent expr
+    Nothing -> pure . Right $ ""
   if isRight tAssignee && isRight tExpr then
     pure . Right $ fromRight "" tAssignee <> " = " <> fromRight "" tExpr
   else
@@ -244,7 +246,8 @@ expressionG indent expr = do
             Right exprStr ->
               pure . Right $ opStr <> " "<> exprStr
 
-    ArrowFunctionEX params body -> do
+    ArrowFunctionEX asyncFlag params body -> do
+      -- TODO: handle asyncFlag.
       tParams <- mapM (typeParameterG indent) params
       tBody <- arrowFunctionBodyG (indent + 2) body
       case lefts (tParams <> [tBody]) of
@@ -275,17 +278,18 @@ expressionG indent expr = do
       strings <- asks strings
       pure . Right $ "{- " <> strings V.! idx <> " -}"
 
-    NewEX ident args -> do
-      tIdent <- identifierG ident
+    NewEX template args -> do
+      tTemplate <- newTemplateG indent template
       tArgs <- mapM (expressionG indent) args
-      case lefts (tIdent : tArgs) of
+      case lefts (tTemplate :tArgs) of
         [] ->
           let
             tArgsStr = rights tArgs
           in
-          pure . Right $ fromRight "" tIdent <> " " <> Bs.intercalate " " tArgsStr
+          pure . Right $ fromRight "" tTemplate <> " " <> Bs.intercalate " " tArgsStr
         errs -> pure . Left $ "@[expressionG] NewEX error for: " <> show errs
     _ -> pure . Left $ "@[expressionG] un-implemented for: " <> show expr.expr
+
 
 callerSpecG :: Int -> CallerSpec -> ElmRef (Either String Bs.ByteString)
 callerSpecG indent callerSpec = do
@@ -307,9 +311,9 @@ memberSelectorG indent memberSelector = do
   let
     tabS = Bs.replicate indent 32  -- 32 = space
   case memberSelector of
-    DottedMS prefix isNull ident -> do
+    DottedMS prefix isNull mbIdent -> do
       tPrefix <- memberPrefixG indent prefix
-      tIdent <- identifierG ident
+      tIdent <- identifierG mbIdent
       case lefts [tPrefix, tIdent] of
         [] ->
           pure . Right $ fromRight "" tPrefix <> "." <> fromRight "" tIdent
@@ -326,7 +330,8 @@ memberPrefixG indent prefix = do
     ComposedMemberSel memberSelector -> memberSelectorG indent memberSelector
     CallMemberSel expr -> expressionG indent expr
     NonNullSel expr -> expressionG indent expr
-    SubscriptMemberSel prefix expr -> do
+    SubscriptMemberSel nullReady prefix expr -> do
+      -- TODO: handle nullReady.
       tPrefix <- memberPrefixG indent prefix
       tExpr <- expressionG indent expr
       case lefts [tPrefix, tExpr] of
@@ -356,6 +361,27 @@ arrowFunctionBodyG indent body = do
         Left err -> pure . Left $ "@[arrowFunctionBodyG] expressionG error: " <> err
         Right exprStr ->
           pure . Right $ exprStr
+
+
+
+newTemplateG :: Int -> NewTemplate -> ElmRef (Either String Bs.ByteString)
+newTemplateG indent template = do
+  let
+    tabS = Bs.replicate indent 32  -- 32 = space
+  case template of
+    IdentTP ident -> do
+      tIdent <- identifierG ident
+      case tIdent of
+        Left err -> pure . Left $ "@[newTemplateG] identifierG error: " <> err
+        Right identStr ->
+          pure . Right $ identStr
+    ExprTP expr -> do
+      tExpr <- expressionG indent expr
+      case tExpr of
+        Left err -> pure . Left $ "@[newTemplateG] expressionG error: " <> err
+        Right exprStr ->
+          pure . Right $ exprStr
+
 
 jsxElementG :: Int -> ElementNd -> ElmRef (Either String Bs.ByteString)
 jsxElementG indent element =
@@ -606,14 +632,24 @@ instanceValueG indent value = do
   let
     tabS = Bs.replicate indent 32  -- 32 = space
   case value of
-    Pair ident expr -> do
-      tIdent <- identifierG ident
+    Pair key expr -> do
+      pKey <- keyIdentifierG indent key
       tExpr <- expressionG indent expr
-      if isRight tIdent && isRight tExpr then
-        pure . Right $ fromRight "" tIdent <> " = " <> fromRight "" tExpr
+      if isRight pKey && isRight tExpr then
+        pure . Right $ fromRight "" pKey <> " = " <> fromRight "" tExpr
       else
         pure . Left $ "@[instanceValueG] error in: " <> show tExpr
     _ -> pure . Left $ "@[instanceValueG] un-implemented for: " <> show value
+
+
+keyIdentifierG :: Int -> KeyIdentifier -> ElmRef (Either String Bs.ByteString)
+keyIdentifierG indent key =
+  case key of
+    IdentKI ident ->
+      identifierG ident
+    LiteralKI expr ->
+      expressionG indent expr
+
 
 getLiteralValue :: LiteralValue -> ElmRef (Either String Bs.ByteString)
 getLiteralValue aLit =
@@ -624,8 +660,8 @@ getLiteralValue aLit =
       pure . Right $ Bs8.pack $ show intVal
     BooleanLT boolVal ->
       pure . Right $ if boolVal then "True" else "False"
-    NullLT ->
-      pure . Right $ ""
+    NullLT -> pure . Right $ ""
+    ThisLT -> pure . Right $ "this"
     _ -> pure . Left $ "@[getLiteralValue] un-implemented for: " <> show aLit
 
 

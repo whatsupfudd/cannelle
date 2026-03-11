@@ -152,6 +152,7 @@ data TsxTopLevel =
 data Parameter =
   ObjectPatternP [FieldSpecification]
   | IdentifierP Identifier
+  | ArrayPatternP [ArrayPatternEntry]
   deriving Show
 
 
@@ -188,11 +189,11 @@ data TsxStatement =
   | DeclarationST
   | SwitchST TsxExpression [(TsxExpression, [TsxStatement])] (Maybe [TsxStatement])
   | ForST TsxExpression TsxExpression TsxExpression TsxStatement
-  | ForOverST ForOverKind Identifier TsxExpression TsxStatement
+  | ForOverST ForOverKind Parameter TsxExpression TsxStatement
   | DoWhileST TsxExpression TsxStatement
   | WhileST TsxExpression TsxStatement
   | ControlFlowST ControlFlowKind
-  | TryCatchFinallyST TsxStatement (Maybe TsxStatement) (Maybe TsxStatement)
+  | TryCatchFinallyST TsxStatement (Maybe (Maybe Identifier, TsxStatement)) (Maybe TsxStatement)
   | LabelST Identifier TsxStatement
   -- Export defaultFlag Item-exported
   | ExportST Bool ExportItem
@@ -212,9 +213,9 @@ data ForOverKind =
 
 data ControlFlowKind =
   BreakCFK
-  | ContinueCFK Identifier
+  | ContinueCFK (Maybe Identifier)
   | ReturnCFK
-  | ThrowCFK
+  | ThrowCFK TsxExpression
   deriving Show
 
 data VarKind =
@@ -224,13 +225,25 @@ data VarKind =
   deriving Show
 
 data VarDecl =
-  VarDecl VarAssignee (Maybe TypeAnnotation) TsxExpression
+  VarDecl VarAssignee (Maybe TypeAnnotation) (Maybe TsxExpression)
   deriving Show
 
 data VarAssignee =
   IdentifierA Identifier
-  | ObjectPatternA [Identifier]
-  | ArrayPatternA [Identifier]
+  | ObjectPatternA Parameter --  [Identifier]
+  | ArrayPatternA [ArrayPatternEntry]
+  deriving Show
+
+
+data ArrayPatternEntry =
+  EmptySeq Int
+  | IdentSeq [ArrayPatternItem]
+  deriving Show
+
+data ArrayPatternItem =
+    IdentAPI Identifier
+  | SubscriptAPI TsxExpression
+  | MemberAPI MemberSelector
   deriving Show
 
 
@@ -263,7 +276,7 @@ data TsxExpression =
   | SetAccessorEX
   | CallEX CallerSpec Bool [TsxExpression]
   | FunctionDefEX Bool (Maybe Int) [TypedParameter] (Maybe TypeAnnotation) [TsxStatement]
-  | ArrowFunctionEX [TypedParameter] ArrowFunctionBody
+  | ArrowFunctionEX Bool [TypedParameter] ArrowFunctionBody
   | ParenEX TsxExpression
   -- Where are those in the grammar definition?
   | NonNullEX TsxExpression
@@ -276,11 +289,15 @@ data TsxExpression =
   | JsxElementEX JsxElement
   | AwaitEX TsxExpression
   | CommentEX Int
-  | NewEX Identifier [TsxExpression]
-  | SubscriptEX TsxExpression TsxExpression
+  | NewEX NewTemplate [TsxExpression]
+  | SubscriptEX Bool TsxExpression TsxExpression
   -- Only Increment/Decrement are allowed in PrefixOperators:
   | UpdateEX PrefixOperator TsxExpression
-  | RegexEX Int Int
+  | RegexEX Int (Maybe Int)
+  | UndefinedEX
+  | SequenceEX [TsxExpression]
+  | LexicalDeclEX VarKind [VarDecl]
+  | AssignmentPatternedEX [ArrayPatternEntry]
   deriving Show
 
 
@@ -293,6 +310,8 @@ data ArrowFunctionBody =
 data CallerSpec =
   SimpleIdentCS Identifier
   | MemberCS MemberSelector
+  | ParenCS TsxExpression
+  | ImportCS
   deriving Show
 
 
@@ -306,14 +325,20 @@ data MemberPrefix =
   | ComposedMemberSel MemberSelector
   | CallMemberSel TsxExpression
   | NonNullSel TsxExpression
-  | SubscriptMemberSel MemberPrefix TsxExpression
+  | SubscriptMemberSel Bool MemberPrefix TsxExpression
   | NewMemberSel TsxExpression
   | ParenMemberSel TsxExpression
   | ArrayMemberSel TsxExpression
   | MemberExprSel TsxExpression
   | RegexMemberSel TsxExpression
+  | TemplateMemberSel LiteralValue
   deriving Show
 
+
+data NewTemplate =
+  IdentTP Identifier
+  | ExprTP TsxExpression
+  deriving Show
 
 data JsxElement =
   SelfClosingJex [Identifier] [(Maybe Int, Maybe JsxAttribute)]
@@ -406,13 +431,20 @@ data BinaryOperator =
   | DivBO
   | ModBO
   | ExpBO
+  | InstanceofBO
   deriving Show
 
 
 data InstanceValue = 
-  Pair Identifier TsxExpression
+  Pair KeyIdentifier TsxExpression
   | MethodDef Identifier [TypedParameter] TsxStatement
   | VarAccessIV Identifier
+  deriving Show
+
+
+data KeyIdentifier =
+  IdentKI Identifier
+  | LiteralKI TsxExpression
   deriving Show
 
 
@@ -422,6 +454,7 @@ data LiteralValue =
   | BooleanLT Bool
   | StrTemplateLT [StringFragment]
   | NullLT
+  | ThisLT
   deriving Show
 
 

@@ -266,6 +266,7 @@ untypedParamD = \case
   J.IdentifierP ident -> do
     aIdent <- identifierD ident
     pure $ A.IdentifierP aIdent
+  J.ArrayPatternP arrayPatterns -> A.ArrayPatternP <$> mapM arrayPatternEntryD arrayPatterns  
 
 
 fieldSpecD :: J.FieldSpecification -> ParseState A.FieldSpecification
@@ -325,10 +326,19 @@ statementD stmt =
     -- TODO: auto-generated, implement them:
     J.SwitchST {} -> pure $ A.StatementNd False False A.SwitchST
     J.ForST {} -> pure $ A.StatementNd False False A.ForST
-    J.ForOverST {} -> pure $ A.StatementNd False False A.ForInST
+    J.ForOverST overKind iterDecl source body -> do
+      aOverKind <- case overKind of
+        J.ForInSK -> pure A.ForInSK
+        J.ForOfSK -> pure A.ForOfSK
+      aIterDecl <- untypedParamD iterDecl
+      aSource <- expressionD source
+      aBody <- statementD body
+      pure $ A.StatementNd False False $ A.ForOverST aOverKind aIterDecl aSource aBody
     J.DoWhileST {} -> pure $ A.StatementNd False False A.DoWhileST
     J.WhileST {} -> pure $ A.StatementNd False False A.WhileST
-    J.ControlFlowST {} -> pure $ A.StatementNd False False A.ControlFlowST
+    J.ControlFlowST kind -> do
+      aKind <- ctrlFlowKindD kind
+      pure $ A.StatementNd False False $ A.ControlFlowST aKind
     J.TryCatchFinallyST {} -> pure $ A.StatementNd False False A.TryCatchFinallyST
     J.LabelST {} -> pure $ A.StatementNd False False A.LabelST
 
@@ -442,11 +452,10 @@ statementD stmt =
           pure $ A.StatementNd False False . A.ReturnST . Just $ aExpr
         Nothing ->
           pure $ A.StatementNd False False $ A.ReturnST Nothing
-    J.LexicalDeclST varKind varDecl -> do
-      aVarKind <- case varKind of
-        J.ConstVK -> pure A.ConstVK
-        J.LetVK -> pure A.LetVK
-        J.VarVK -> pure A.VarVK
+    J.LexicalDeclST varKind varDecl ->
+      let
+        aVarKind = convVarKind varKind
+      in do
       varDecl <- mapM varDeclD varDecl
       pure $ A.StatementNd False False $ A.LexicalDeclST aVarKind varDecl
     J.FunctionDeclST expr -> do
@@ -525,10 +534,10 @@ expressionD expr =
       pure $ A.ExpressionNd False False $ A.CallEX aCallerSpec isNullGuarded aArgs
     J.FunctionDefEX isAsync mbIdent params mbType body ->
       functionDefD isAsync mbIdent params mbType body
-    J.ArrowFunctionEX params body -> do
+    J.ArrowFunctionEX isAsync params body -> do
       aParams <- mapM typeParamD params
       aBody <- arrowFunctionBodyD body
-      pure $ A.ExpressionNd False False $ A.ArrowFunctionEX aParams aBody
+      pure $ A.ExpressionNd False False $ A.ArrowFunctionEX isAsync aParams aBody
     J.ParenEX expr ->
       A.ExpressionNd False False . A.ParenEX <$> expressionD expr
     J.NonNullEX expr -> do
@@ -539,17 +548,7 @@ expressionD expr =
     J.InstanceEX instValues ->
       A.ExpressionNd False False . A.InstanceEX <$> mapM instanceValueD instValues
     J.LiteralEX aLit ->
-      case aLit of
-        J.StringLT strValue ->
-          A.ExpressionNd False False . A.LiteralEX . A.StringLT <$> stringValueD strValue
-        J.NumberLT numValue ->
-          pure $ A.ExpressionNd False False $ A.LiteralEX $ A.NumberLT numValue
-        J.BooleanLT boolValue ->
-          pure $ A.ExpressionNd False False $ A.LiteralEX $ A.BooleanLT boolValue
-        J.StrTemplateLT strFragments ->
-          A.ExpressionNd False False . A.LiteralEX . A.StrTemplateLT <$> mapM stringFragmentD strFragments
-        J.NullLT ->
-          pure $ A.ExpressionNd False False $ A.LiteralEX A.NullLT
+      A.ExpressionNd False False . A.LiteralEX <$> literalValueD aLit
     J.VarAccessEX ident -> do
       aIdent <- identifierD ident
       pure $ A.ExpressionNd False False $ A.VarAccessEX aIdent
@@ -571,21 +570,29 @@ expressionD expr =
         Left err -> throwError err
         Right derefIdx ->
           pure $ A.ExpressionNd False False $ A.CommentEX derefIdx
-    J.NewEX ident args -> do
-      aIdent <- identifierD ident
+    J.NewEX template args -> do
+      aTemplate <- newTemplateD template
       aArgs <- mapM expressionD args
-      pure $ A.ExpressionNd False False $ A.NewEX aIdent aArgs
+      pure $ A.ExpressionNd False False $ A.NewEX aTemplate aArgs
     J.UpdateEX op expr -> do
       aExpr <- expressionD expr
       pure $ A.ExpressionNd False False $ A.UpdateEX (convUnaryOp op) aExpr
-    J.RegexEX pattern flags -> do
-      pure $ A.ExpressionNd False False $ A.RegexEX pattern flags
-    J.SubscriptEX expr subscript -> do
+    J.RegexEX pattern mbFlags -> do
+      pure $ A.ExpressionNd False False $ A.RegexEX pattern mbFlags
+    J.SubscriptEX isNull expr subscript -> do
       aExpr <- expressionD expr
       aSubscript <- expressionD subscript
-      pure $ A.ExpressionNd False False $ A.SubscriptEX aExpr aSubscript
+      pure $ A.ExpressionNd False False $ A.SubscriptEX isNull aExpr aSubscript
+    J.SequenceEX exprs ->
+      A.ExpressionNd False False . A.SequenceEX <$> mapM expressionD exprs
+    J.LexicalDeclEX varKind varDecls ->
+      let
+        aVarKind = convVarKind varKind
+      in
+      A.ExpressionNd False False . A.LexicalDeclEX aVarKind <$> mapM varDeclD varDecls
     _ ->
       throwError $ "@[expressionD] unhandled expression: " <> show expr
+
 
 elementD :: J.JsxElement -> ParseState A.ElementNd
 elementD jsxElement = do
@@ -623,7 +630,6 @@ elementD jsxElement = do
             put newState
             pure . Just $ A.JsxClosing aBIdents
       pure $ A.ElementNd False False $ A.ElementJex aOpening aElements aMbClosing
-
     J.ExpressionJex (J.JsxTsxExpr expr) ->
       A.ElementNd False False . A.ExpressionJex . A.JsxTsxExpr <$> expressionD expr
     J.TextJex idx ->
@@ -634,6 +640,21 @@ elementD jsxElement = do
     J.HtmlCharRefJex strFragment -> do
       aStrFragment <- stringFragmentD strFragment
       pure . A.ElementNd False False . A.HtmlCharRefJex $ aStrFragment
+
+
+literalValueD :: J.LiteralValue -> ParseState A.LiteralValue
+literalValueD lValue =
+  case lValue of
+    J.StringLT strValue ->
+      A.StringLT <$> stringValueD strValue
+    J.NumberLT numValue ->
+      pure $ A.NumberLT numValue
+    J.BooleanLT boolValue ->
+      pure $ A.BooleanLT boolValue
+    J.StrTemplateLT strFragments ->
+      A.StrTemplateLT <$> mapM stringFragmentD strFragments
+    J.NullLT -> pure A.NullLT
+    J.ThisLT -> pure A.ThisLT
 
 
 attribPairD :: (Maybe Int, Maybe J.JsxAttribute) -> ParseState (Maybe Int, Maybe A.JsxAttribute)
@@ -671,19 +692,31 @@ arrowFunctionBodyD body =
 instanceValueD :: J.InstanceValue -> ParseState A.InstanceValue
 instanceValueD instValue =
   case instValue of
-    J.Pair ident expr ->
-      A.Pair <$> identifierD ident <*> expressionD expr
+    J.Pair key expr ->
+      A.Pair <$> keyIdentifierD key <*> expressionD expr
     J.MethodDef ident params body ->
       A.MethodDef <$> identifierD ident <*> mapM typeParamD params <*> statementD body
     J.VarAccessIV ident ->
       A.VarAccessIV <$> identifierD ident
 
+
+keyIdentifierD :: J.KeyIdentifier -> ParseState A.KeyIdentifier
+keyIdentifierD key =
+  case key of
+    J.IdentKI ident ->
+      A.IdentKI <$> identifierD ident
+    J.LiteralKI expr ->
+      A.LiteralKI <$> expressionD expr
+
+
 varDeclD :: J.VarDecl -> ParseState A.VarDecl
 varDeclD varDecl =
   case varDecl of
-    J.VarDecl assignee mbType expr -> do
+    J.VarDecl assignee mbType mbExpr -> do
       aAssignee <- assigneeD assignee
-      aExpr <- expressionD expr
+      aExpr <- case mbExpr of
+        Just expr -> Just <$> expressionD expr
+        Nothing -> pure Nothing
       mbAType <- case mbType of
         Just aType -> Just <$> typingD aType
         Nothing -> pure Nothing
@@ -692,12 +725,13 @@ varDeclD varDecl =
 callerSpecD :: J.CallerSpec -> ParseState A.CallerSpec
 callerSpecD callerSpec =
   case callerSpec of
-    J.SimpleIdentCS ident -> do
-      aIdent <- identifierD ident
-      pure $ A.SimpleIdentCS aIdent
-    J.MemberCS memberSelector -> do
-      aMemberSelector <- memberSelectorD memberSelector
-      pure $ A.MemberCS aMemberSelector
+    J.SimpleIdentCS ident ->
+      A.SimpleIdentCS <$> identifierD ident
+    J.MemberCS memberSelector ->
+      A.MemberCS <$> memberSelectorD memberSelector
+    J.ParenCS expr ->
+      A.ParenCS <$> expressionD expr
+    J.ImportCS -> pure A.ImportCS
 
 memberSelectorD :: J.MemberSelector -> ParseState A.MemberSelector
 memberSelectorD memberSelector =
@@ -722,10 +756,10 @@ memberPrefixD prefix =
     J.NonNullSel expr -> do
       aExpr <- expressionD expr
       pure $ A.NonNullSel aExpr
-    J.SubscriptMemberSel prefix expr -> do
+    J.SubscriptMemberSel nullReady prefix expr -> do
       aPrefix <- memberPrefixD prefix
       aExpr <- expressionD expr
-      pure $ A.SubscriptMemberSel aPrefix aExpr
+      pure $ A.SubscriptMemberSel nullReady aPrefix aExpr
     J.NewMemberSel expr -> do
       aExpr <- expressionD expr
       pure $ A.NewMemberSel aExpr
@@ -738,15 +772,39 @@ memberPrefixD prefix =
     J.RegexMemberSel expr -> do
       aExpr <- expressionD expr
       pure $ A.RegexMemberSel aExpr
+    J.TemplateMemberSel litValue ->
+      A.TemplateMemberSel <$> literalValueD litValue
 
 
 assigneeD :: J.VarAssignee -> ParseState A.VarAssignee
 assigneeD assignee =
   case assignee of
-    J.IdentifierA ident -> do
-      A.IdentifierA <$> identifierD ident
-    J.ObjectPatternA idents -> A.ObjectPatternA <$> mapM identifierD idents
-    J.ArrayPatternA idents -> A.ArrayPatternA <$> mapM identifierD idents
+    J.IdentifierA ident -> A.IdentifierA <$> identifierD ident
+    J.ObjectPatternA param -> A.ObjectPatternA <$> untypedParamD param
+    J.ArrayPatternA idents -> A.ArrayPatternA <$> mapM arrayPatternEntryD idents
+
+
+arrayPatternEntryD :: J.ArrayPatternEntry -> ParseState A.ArrayPatternEntry
+arrayPatternEntryD arrayPatternEntry =
+  case arrayPatternEntry of
+    J.EmptySeq nbrEmpties -> pure $ A.EmptySeq nbrEmpties
+    J.IdentSeq items -> A.IdentSeq <$> mapM arrayPatternItemD items
+
+arrayPatternItemD :: J.ArrayPatternItem -> ParseState A.ArrayPatternItem
+arrayPatternItemD arrayPatternItem =
+  case arrayPatternItem of
+    J.IdentAPI ident -> A.IdentAPI <$> identifierD ident
+    J.SubscriptAPI expr -> A.SubscriptAPI <$> expressionD expr
+    J.MemberAPI selector -> A.MemberAPI <$> memberSelectorD selector
+
+
+newTemplateD :: J.NewTemplate -> ParseState A.NewTemplate
+newTemplateD template =
+  case template of
+    J.IdentTP ident -> do
+      aIdent <- identifierD ident
+      pure $ A.IdentTP aIdent
+    J.ExprTP expr -> A.ExprTP <$> expressionD expr
 
 
 identifierD :: J.Identifier -> ParseState A.Identifier
@@ -860,6 +918,7 @@ convBinaryOp = \case
   J.DivBO -> A.DivBO
   J.ModBO -> A.ModBO
   J.ExpBO -> A.ExpBO
+  J.InstanceofBO -> A.InstanceofBO
 
 
 convDefinedType :: J.DefinedType -> A.DefinedType
@@ -892,3 +951,18 @@ Fourth phase: for each function, create a matching Elm function.
 Fifth phase: 
 -}
 
+ctrlFlowKindD :: J.ControlFlowKind -> ParseState A.ControlFlowKind
+ctrlFlowKindD = \case
+  J.BreakCFK -> pure A.BreakCFK
+  -- TODO: solve the ident resolution problem.
+  J.ContinueCFK {} -> pure $ A.ContinueCFK Nothing
+  J.ReturnCFK -> pure A.ReturnCFK
+  J.ThrowCFK expr ->
+    A.ThrowCFK <$> expressionD expr
+
+
+convVarKind :: J.VarKind -> A.VarKind
+convVarKind = \case
+  J.ConstVK -> A.ConstVK
+  J.LetVK -> A.LetVK
+  J.VarVK -> A.VarVK
