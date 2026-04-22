@@ -36,11 +36,21 @@ tsParsePhp debugMode filePath = do
   -- TODO: process the (Right PhpContext) returned by tryParsePhp into a FileTempl.
   tryParsePhp debugMode parser filePath
 
+tsParsePhpFromBytes :: Bool -> Bs.ByteString -> IO (Either CompError PhpContext)
+tsParsePhpFromBytes debugMode tmplString = do
+  -- putStrLn $ "@[tsParsePhp] parsing: " ++ filePath
+  parser <- ts_parser_new
+  ts_parser_set_language parser tree_sitter_php
+  tryParsePhpFromBytes debugMode parser tmplString
+
 
 tryParsePhp :: Bool -> Ptr Parser -> FilePath -> IO (Either CompError PhpContext)
 tryParsePhp debugMode parser path = do
   tmplString <- Bs.readFile path
+  tryParsePhpFromBytes debugMode parser tmplString
 
+tryParsePhpFromBytes :: Bool -> Ptr Parser -> Bs.ByteString -> IO (Either CompError PhpContext)
+tryParsePhpFromBytes debugMode parser tmplString = do
   (cStr, strLen) <- newCStringLen $ unpack . T.decodeUtf8 $ tmplString
   tree <- ts_parser_parse_string parser nullPtr cStr strLen
 

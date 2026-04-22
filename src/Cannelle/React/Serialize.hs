@@ -622,6 +622,8 @@ encodeImportKind = \case
             putBool isTypeSymbol <> putVarInt identIx
          )
          items
+  NamespaceIK identIx ->
+    word8 2 <> putVarInt identIx
   EntireFileIK sourceValue ->
     word8 2 <> encodeStringValue sourceValue
 
@@ -693,6 +695,11 @@ encodeTsxExpression = \case
     word8 26 <> putList encodeTsxExpression exprValues
   LexicalDeclEX varKind varDecls ->
     word8 27 <> encodeVarKind varKind <> putList encodeVarDecl varDecls
+  AssignmentPatternedEX arrayPatterns ->
+    word8 28 <> putList encodeArrayPatternEntry arrayPatterns
+  UpdateEX op exprValue ->
+    word8 29 <> encodePrefixOperator op <> encodeTsxExpression exprValue
+  x -> error $ "@[encodeTsxExpression Unknown TsxExpression: " <> show x
 
 encodeNewTemplate :: NewTemplate -> Builder
 encodeNewTemplate = \case
@@ -715,6 +722,8 @@ encodeCallerSpec = \case
   MemberCS selectorValue ->
     word8 1 <> encodeMemberSelector selectorValue
   ImportCS -> word8 2
+  ParenCS exprValue ->
+    word8 3 <> encodeTsxExpression exprValue
 
 encodeMemberSelector :: MemberSelector -> Builder
 encodeMemberSelector = \case
@@ -723,6 +732,7 @@ encodeMemberSelector = \case
     <> encodeMemberPrefix prefixValue
     <> putBool isOptional
     <> encodeIdentifier identValue
+
 
 encodeMemberPrefix :: MemberPrefix -> Builder
 encodeMemberPrefix = \case
@@ -738,8 +748,17 @@ encodeMemberPrefix = \case
     word8 4 <> putBool nullReady <> encodeMemberPrefix prefixValue <> encodeTsxExpression exprValue
   NewMemberSel exprValue ->
     word8 5 <> encodeTsxExpression exprValue
+  ParenMemberSel exprValue ->
+    word8 6 <> encodeTsxExpression exprValue
+  ArrayMemberSel exprValue ->
+    word8 7 <> encodeTsxExpression exprValue
+  MemberExprSel exprValue ->
+    word8 8 <> encodeTsxExpression exprValue
+  RegexMemberSel exprValue ->
+    word8 9 <> encodeTsxExpression exprValue
   TemplateMemberSel literalValue ->
-    word8 6 <> encodeLiteralValue literalValue
+    word8 10 <> encodeLiteralValue literalValue
+  x -> error $ "@[encodeMemberPrefix Unknown MemberPrefix" <> show x
 
 encodeJsxElement :: JsxElement -> Builder
 encodeJsxElement = \case
@@ -1420,7 +1439,8 @@ getImportKind = do
     0 -> SingleIK <$> getVarInt
     1 ->
       NamedIK <$> getList ((,) <$> getBool <*> getVarInt)
-    2 -> EntireFileIK <$> getStringValue
+    2 -> NamespaceIK <$> getVarInt
+    3 -> EntireFileIK <$> getStringValue
     _ -> fail ("Unknown ImportKind tag: " <> show tag)
 
 getTsxExpression :: Get TsxExpression
@@ -1456,6 +1476,8 @@ getTsxExpression = do
     25 -> pure UndefinedEX
     26 -> SequenceEX <$> getList getTsxExpression
     27 -> LexicalDeclEX <$> getVarKind <*> getList getVarDecl
+    28 -> AssignmentPatternedEX <$> getList getArrayPatternEntry
+    29 -> UpdateEX <$> getPrefixOperator <*> getTsxExpression
     _ -> fail ("Unknown TsxExpression tag: " <> show tag)
 
 
@@ -1483,6 +1505,7 @@ getCallerSpec = do
     0 -> SimpleIdentCS <$> getIdentifier
     1 -> MemberCS <$> getMemberSelector
     2 -> pure ImportCS
+    3 -> ParenCS <$> getTsxExpression
     _ -> fail ("Unknown CallerSpec tag: " <> show tag)
 
 getMemberSelector :: Get MemberSelector
@@ -1501,7 +1524,12 @@ getMemberPrefix = do
     2 -> CallMemberSel <$> getTsxExpression
     3 -> NonNullSel <$> getTsxExpression
     4 -> SubscriptMemberSel <$> getBool <*> getMemberPrefix <*> getTsxExpression
-    6 -> TemplateMemberSel <$> getLiteralValue
+    5 -> NewMemberSel <$> getTsxExpression
+    6 -> ParenMemberSel <$> getTsxExpression
+    7 -> ArrayMemberSel <$> getTsxExpression
+    8 -> MemberExprSel <$> getTsxExpression
+    9 -> RegexMemberSel <$> getTsxExpression
+    10 -> TemplateMemberSel <$> getLiteralValue
     _ -> fail ("Unknown MemberPrefix tag: " <> show tag)
 
 getJsxElement :: Get JsxElement
