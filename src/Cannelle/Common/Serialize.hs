@@ -21,13 +21,19 @@ import Cannelle.TreeSitter.Types (SegmentPos)
 compactText :: FilePath -> V.Vector SegmentPos -> IO (Mp.Map Int32 (Bs.ByteString, [Int32]))
 compactText sourceFile contentDemands = do
   sourceText <- Bs.readFile sourceFile
+  pure $ compactTextFromBytes sourceText contentDemands
+
+
+compactTextFromBytes :: Bs.ByteString -> V.Vector SegmentPos -> (Mp.Map Int32 (Bs.ByteString, [Int32]))
+compactTextFromBytes sourceText contentDemands =
   let
     cLines = V.fromList $ Bs.split 10 sourceText
     demandLines = V.map (fetchContent cLines) $ V.zip contentDemands (V.fromList [0..])
     firstHash =
         Mp.fromListWith mergeHashUsers $ V.toList $ V.map (\(pos, lineText) -> (Cr.hash lineText, (lineText, [pos]))) demandLines
     posFromHash = zipWith (\rid (k, (lt, users)) -> (rid, (lt, users))) [0..] (Mp.toList firstHash)
-  pure $ Mp.fromList posFromHash
+  in
+  Mp.fromList posFromHash
   where
   mergeHashUsers :: (Bs.ByteString, [Int32]) -> (Bs.ByteString, [Int32]) -> (Bs.ByteString, [Int32])
   mergeHashUsers (lineText, accum) (_, e2) = (lineText, accum <> e2)
